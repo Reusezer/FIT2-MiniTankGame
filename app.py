@@ -25,6 +25,10 @@ class TankTankApp:
             self._update_menu()
 
     def _update_menu(self):
+        # Update network state first
+        if self.network:
+            self.network.update()
+
         action = self.menu.update(self.network)
 
         if action == "quit":

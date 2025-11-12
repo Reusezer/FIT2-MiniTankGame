@@ -112,6 +112,7 @@ class NetworkPeer:
             conn, addr = self.sock.accept()
             print(f"Client connected from {addr}")
             self.conn = conn
+            self.conn.settimeout(1.0)  # Set timeout on the connection socket
             self.connected = True
 
             # Start send/recv threads
@@ -131,6 +132,7 @@ class NetworkPeer:
             try:
                 self.sock.connect((self.server_ip, self.port))
                 self.conn = self.sock
+                self.conn.settimeout(1.0)  # Set timeout on the connection socket
                 self.connected = True
                 print("Connected to server!")
 
@@ -183,8 +185,11 @@ class NetworkPeer:
                             self.inbox.put(msg)
                         except json.JSONDecodeError:
                             print(f"Invalid JSON: {line}")
-            except OSError:
-                print("Connection lost (recv)")
+            except socket.timeout:
+                # Timeout is expected, just continue
+                continue
+            except OSError as e:
+                print(f"Connection lost (recv): {e}")
                 self.connected = False
                 break
 
@@ -317,9 +322,11 @@ class NetworkManager:
                 if self.is_host and not self.clients:
                     # Client connected
                     self.clients = {("client", NETWORK_PORT): 1}
+                    print(f"[NetworkManager] Host: Client connected, clients dict: {self.clients}")
                 elif not self.is_host and not self.my_player_id:
                     # Connected to host
                     self.my_player_id = 1
+                    print(f"[NetworkManager] Client: Connected to host, player_id: {self.my_player_id}")
 
     def stop(self):
         """Stop networking"""

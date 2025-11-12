@@ -176,9 +176,15 @@ class GameInstance:
                 self.__init__(self.num_players, self.use_network, self.is_host, self.network)
             return
 
-        # Update network
+        # Update network and receive remote player states
+        remote_player_state = None
         if self.network:
             self.network.update()
+            # Receive latest state from remote player
+            if self.network.peer:
+                msg = self.network.peer.recv_latest()
+                if msg and msg.get("type") == "player_state":
+                    remote_player_state = msg
 
         # Update players
         for i, player in enumerate(self.players):
@@ -196,8 +202,9 @@ class GameInstance:
                         # Send our player state to the network
                         self._send_player_state(player)
                     else:
-                        # Receive and apply other player's state
-                        self._receive_player_state(player)
+                        # Apply remote player's state
+                        if remote_player_state and remote_player_state.get("player_id") == i:
+                            self._apply_player_state(player, remote_player_state)
 
         # Update bullets
         for bullet in self.bullets:
@@ -312,18 +319,20 @@ class GameInstance:
                 "alive": player.alive
             }
             self.network.peer.send(state)
+            # Debug: print occasionally
+            if pyxel.frame_count % 60 == 0:
+                print(f"[Game] Sending player {player.id} state: pos=({player.x},{player.y})")
 
-    def _receive_player_state(self, player):
-        """Receive and apply remote player state"""
-        if self.network and self.network.peer:
-            msg = self.network.peer.recv_latest()
-            if msg and msg.get("type") == "player_state":
-                if msg.get("player_id") == player.id:
-                    player.x = msg.get("x", player.x)
-                    player.y = msg.get("y", player.y)
-                    player.direction = msg.get("direction", player.direction)
-                    player.hp = msg.get("hp", player.hp)
-                    player.alive = msg.get("alive", player.alive)
+    def _apply_player_state(self, player, state):
+        """Apply remote player state"""
+        player.x = state.get("x", player.x)
+        player.y = state.get("y", player.y)
+        player.direction = state.get("direction", player.direction)
+        player.hp = state.get("hp", player.hp)
+        player.alive = state.get("alive", player.alive)
+        # Debug: print occasionally
+        if pyxel.frame_count % 60 == 0:
+            print(f"[Game] Received player {player.id} state: pos=({player.x},{player.y})")
 
     def draw(self):
         pyxel.cls(COLOR_BG)

@@ -298,6 +298,7 @@ class NetworkManager:
         self.my_player_id = None
         self.player_names = {}  # Map of player_id -> player_name
         self.my_player_name = ""
+        self.game_starting = False  # Flag for when host starts game
 
         # Create TCP peer
         self.peer = None
@@ -358,6 +359,12 @@ class NetworkManager:
             self.player_names = msg.get("players", {})
             print(f"[NetworkManager] Received player list: {self.player_names}")
 
+        elif msg_type == "start_game":
+            # Host is starting the game
+            print(f"[NetworkManager] Received start_game signal from host")
+            # Signal that we should start (app will check for this)
+            self.game_starting = True
+
     def stop(self):
         """Stop networking"""
         self.running = False
@@ -386,3 +393,12 @@ class NetworkManager:
                 "players": self.player_names
             })
             print(f"[NetworkManager] Sent player list: {self.player_names}")
+
+    def broadcast_start_game(self):
+        """Host broadcasts game start to all clients"""
+        if self.is_host and self.peer and self.peer.is_connected():
+            self.peer.send({
+                "type": "start_game",
+                "num_players": len(self.player_names)
+            })
+            print(f"[NetworkManager] Broadcasting start_game to all clients")

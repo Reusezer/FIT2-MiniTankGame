@@ -29,6 +29,13 @@ class TankTankApp:
         if self.network:
             self.network.update()
 
+            # Check if host has signaled game start (for clients)
+            if not self.menu.is_host and self.network.game_starting:
+                print("[App] Client detected game start signal from host")
+                num_players = len(self.network.player_names)
+                self._start_game(num_players=num_players, use_network=True, is_host=False)
+                return
+
         action = self.menu.update(self.network)
 
         if action == "quit":
@@ -63,7 +70,12 @@ class TankTankApp:
 
         elif action == "start_network":
             # Host starts network game
-            num_players = len(self.network.clients) + 1 if self.network else 2
+            if self.network:
+                # Broadcast start signal to all clients
+                self.network.broadcast_start_game()
+                print("[App] Host broadcasting start_game signal")
+
+            num_players = len(self.network.player_names) if self.network else 2
             self._start_game(num_players=num_players, use_network=True, is_host=self.menu.is_host)
 
         elif action == "cancel_network":

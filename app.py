@@ -57,9 +57,9 @@ class TankTankApp:
                 print(f"[App] NetworkManager already exists, skipping creation")
 
         elif action == "join_lobby":
-            # Client found host, send join request
+            # Client found host, send join request with player name
             if self.network:
-                self.network.join_game()
+                self.network.join_game(self.menu.player_name)
 
         elif action == "start_network":
             # Host starts network game

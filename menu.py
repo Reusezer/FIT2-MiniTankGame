@@ -183,10 +183,32 @@ class Menu:
         # Update player list
         if network_manager:
             if self.is_host:
-                self.lobby_players = [self.player_name] + [f"Player {i+2}" for i in range(len(network_manager.clients))]
+                # Host: add own name + client names from player_names dict
+                # Make sure host's name is stored
+                if 0 not in network_manager.player_names:
+                    network_manager.player_names[0] = self.player_name
+                    network_manager.my_player_name = self.player_name
+
+                # Build player list from player_names
+                self.lobby_players = []
+                for player_id in sorted(network_manager.player_names.keys()):
+                    self.lobby_players.append(network_manager.player_names[player_id])
+
+                # If no clients yet, just show host
+                if not self.lobby_players:
+                    self.lobby_players = [self.player_name]
+
                 self.network_status = f"Players: {len(self.lobby_players)}/4"
             else:
-                self.lobby_players = [self.player_name]
+                # Client: display player list from host
+                self.lobby_players = []
+                for player_id in sorted(network_manager.player_names.keys()):
+                    self.lobby_players.append(network_manager.player_names[player_id])
+
+                # If no player list yet, just show own name
+                if not self.lobby_players:
+                    self.lobby_players = [self.player_name]
+
                 self.network_status = "Waiting for host..."
 
         # Start game (host only)

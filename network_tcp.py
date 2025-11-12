@@ -296,6 +296,8 @@ class NetworkManager:
         self.host_address = None
         self.clients = {}
         self.my_player_id = None
+        self.player_names = {}  # Map of player_id -> player_name
+        self.my_player_name = ""
 
         # Create TCP peer
         self.peer = None
@@ -331,12 +333,56 @@ class NetworkManager:
                     self.my_player_id = 1
                     print(f"[NetworkManager] Client: Connected to host, player_id: {self.my_player_id}")
 
+            # Process incoming messages
+            msg = self.peer.recv_latest()
+            if msg:
+                self._handle_message(msg)
+
+    def _handle_message(self, msg):
+        """Handle incoming network messages"""
+        msg_type = msg.get("type")
+
+        if msg_type == "player_join":
+            # Store player name
+            player_id = msg.get("player_id", 1)
+            player_name = msg.get("name", f"Player {player_id}")
+            self.player_names[player_id] = player_name
+            print(f"[NetworkManager] Player joined: {player_name} (ID: {player_id})")
+
+            # If we're the host, send back the full player list
+            if self.is_host:
+                self.send_player_list()
+
+        elif msg_type == "player_list":
+            # Update full player list (from host)
+            self.player_names = msg.get("players", {})
+            print(f"[NetworkManager] Received player list: {self.player_names}")
+
     def stop(self):
         """Stop networking"""
         self.running = False
         if self.peer:
             self.peer.stop()
 
-    def join_game(self):
-        """Join game (auto-handled by TCP connection)"""
-        return self.peer and self.peer.is_connected()
+    def join_game(self, player_name=""):
+        """Join game and send player name"""
+        if self.peer and self.peer.is_connected():
+            self.my_player_name = player_name
+            # Send join message with player name
+            self.peer.send({
+                "type": "player_join",
+                "player_id": 1,  # Client is always player 1 in TCP (will be assigned by host)
+                "name": player_name
+            })
+            print(f"[NetworkManager] Sending join request with name: {player_name}")
+            return True
+        return False
+
+    def send_player_list(self):
+        """Host sends current player list to all clients"""
+        if self.is_host and self.peer and self.peer.is_connected():
+            self.peer.send({
+                "type": "player_list",
+                "players": self.player_names
+            })
+            print(f"[NetworkManager] Sent player list: {self.player_names}")

@@ -37,7 +37,9 @@ class TankTankApp:
         elif action == "setup_network":
             # Initialize network
             if self.network is None:
-                self.network = NetworkManager(self.menu.is_host)
+                # Pass direct IP if client has entered one
+                direct_ip = self.menu.host_ip if not self.menu.is_host and self.menu.host_ip else None
+                self.network = NetworkManager(self.menu.is_host, direct_ip=direct_ip)
                 self.network.start()
 
                 # Check if connection was established (for host)

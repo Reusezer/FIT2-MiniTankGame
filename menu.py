@@ -4,9 +4,10 @@ from constants import *
 class MenuState:
     MAIN_MENU = 0
     ENTER_NAME = 1
-    NETWORK_SETUP = 2
-    LOBBY = 3
-    CONNECTING = 4
+    ENTER_IP = 2
+    NETWORK_SETUP = 3
+    LOBBY = 4
+    CONNECTING = 5
 
 
 class Menu:
@@ -14,6 +15,7 @@ class Menu:
         self.state = MenuState.MAIN_MENU
         self.selected_option = 0
         self.player_name = ""
+        self.host_ip = ""
         self.is_host = False
         self.network_status = "Not connected"
         self.lobby_players = []
@@ -25,7 +27,7 @@ class Menu:
         self.main_menu_options = [
             "LOCAL MULTIPLAYER",
             "HOST NETWORK GAME",
-            "JOIN NETWORK GAME",
+            "JOIN BY IP ADDRESS",
             "QUIT"
         ]
 
@@ -36,6 +38,8 @@ class Menu:
             return self._update_main_menu()
         elif self.state == MenuState.ENTER_NAME:
             return self._update_name_input()
+        elif self.state == MenuState.ENTER_IP:
+            return self._update_ip_input()
         elif self.state == MenuState.NETWORK_SETUP:
             return self._update_network_setup(network_manager)
         elif self.state == MenuState.CONNECTING:
@@ -59,9 +63,9 @@ class Menu:
             elif self.selected_option == 1:  # Host
                 self.is_host = True
                 self.state = MenuState.ENTER_NAME
-            elif self.selected_option == 2:  # Join
+            elif self.selected_option == 2:  # Join by IP
                 self.is_host = False
-                self.state = MenuState.ENTER_NAME
+                self.state = MenuState.ENTER_IP
             elif self.selected_option == 3:  # Quit
                 return "quit"
 
@@ -99,6 +103,41 @@ class Menu:
         if pyxel.btnp(pyxel.KEY_ESCAPE):
             self.state = MenuState.MAIN_MENU
             self.player_name = ""
+            self.error_message = ""
+
+        return None
+
+    def _update_ip_input(self):
+        """Handle IP address input"""
+        # Handle text input for IP
+        for key in range(pyxel.KEY_0, pyxel.KEY_9 + 1):
+            if pyxel.btnp(key):
+                if len(self.host_ip) < 15:  # Max IP length
+                    self.host_ip += str(key - pyxel.KEY_0)
+
+        # Period/dot
+        if pyxel.btnp(pyxel.KEY_PERIOD):
+            if len(self.host_ip) < 15:
+                self.host_ip += "."
+
+        # Backspace
+        if pyxel.btnp(pyxel.KEY_BACKSPACE):
+            self.host_ip = self.host_ip[:-1]
+
+        # Confirm IP
+        if pyxel.btnp(pyxel.KEY_RETURN):
+            # Validate IP format
+            parts = self.host_ip.split('.')
+            if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts if p):
+                self.state = MenuState.ENTER_NAME
+                return None
+            else:
+                self.error_message = "Invalid IP format!"
+
+        # Go back
+        if pyxel.btnp(pyxel.KEY_ESCAPE):
+            self.state = MenuState.MAIN_MENU
+            self.host_ip = ""
             self.error_message = ""
 
         return None
@@ -178,6 +217,8 @@ class Menu:
             self._draw_main_menu()
         elif self.state == MenuState.ENTER_NAME:
             self._draw_name_input()
+        elif self.state == MenuState.ENTER_IP:
+            self._draw_ip_input()
         elif self.state == MenuState.NETWORK_SETUP:
             self._draw_network_setup()
         elif self.state == MenuState.CONNECTING:
@@ -267,6 +308,54 @@ class Menu:
             msg_x = SCREEN_WIDTH // 2 - len(self.error_message) * 2
             pyxel.text(msg_x, 195, self.error_message, COLOR_EXPLOSION)
 
+    def _draw_ip_input(self):
+        # Title
+        title = "ENTER HOST IP ADDRESS"
+        title_x = SCREEN_WIDTH // 2 - len(title) * 2
+        pyxel.text(title_x, 60, title, COLOR_UI)
+
+        # Input box
+        box_x = 50
+        box_y = 100
+        box_w = SCREEN_WIDTH - 100
+        box_h = 20
+
+        pyxel.rect(box_x, box_y, box_w, box_h, COLOR_WALL)
+        pyxel.rectb(box_x, box_y, box_w, box_h, COLOR_UI)
+
+        # IP address
+        ip_display = self.host_ip if self.host_ip else "0.0.0.0"
+        text_x = box_x + 5
+        text_y = box_y + 7
+        pyxel.text(text_x, text_y, ip_display, COLOR_UI)
+
+        # Cursor blink
+        if self.cursor_blink < 30:
+            cursor_x = text_x + len(self.host_ip) * 4
+            pyxel.line(cursor_x, text_y, cursor_x, text_y + 5, COLOR_ITEM)
+
+        # Instructions
+        inst1 = "Type IP address (e.g. 192.168.1.100)"
+        inst1_x = SCREEN_WIDTH // 2 - len(inst1) * 2
+        pyxel.text(inst1_x, 140, inst1, COLOR_WALL)
+
+        inst2 = "Use numbers and period (.)"
+        inst2_x = SCREEN_WIDTH // 2 - len(inst2) * 2
+        pyxel.text(inst2_x, 155, inst2, COLOR_WALL)
+
+        inst3 = "Press ENTER to continue"
+        inst3_x = SCREEN_WIDTH // 2 - len(inst3) * 2
+        pyxel.text(inst3_x, 170, inst3, COLOR_WALL)
+
+        inst4 = "Press ESC to go back"
+        inst4_x = SCREEN_WIDTH // 2 - len(inst4) * 2
+        pyxel.text(inst4_x, 185, inst4, COLOR_WALL)
+
+        # Error message
+        if self.error_message:
+            msg_x = SCREEN_WIDTH // 2 - len(self.error_message) * 2
+            pyxel.text(msg_x, 210, self.error_message, COLOR_EXPLOSION)
+
     def _draw_network_setup(self):
         title = "SETTING UP NETWORK..."
         title_x = SCREEN_WIDTH // 2 - len(title) * 2
@@ -322,6 +411,20 @@ class Menu:
         # Status
         status_x = SCREEN_WIDTH // 2 - len(self.network_status) * 2
         pyxel.text(status_x, 50, self.network_status, COLOR_PLAYER_3)
+
+        # Show IP if host
+        if self.is_host:
+            import socket
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                my_ip = s.getsockname()[0]
+                s.close()
+                ip_text = f"Your IP: {my_ip}:{NETWORK_PORT}"
+                ip_x = SCREEN_WIDTH // 2 - len(ip_text) * 2
+                pyxel.text(ip_x, 65, ip_text, COLOR_ITEM)
+            except:
+                pass
 
         # Player list
         list_title = "PLAYERS:"

@@ -6,15 +6,17 @@ from constants import *
 
 class NetworkManager:
     """
-    Simple UDP-based networking for local multiplayer
+    UDP-based networking for multiplayer
     Supports:
     - Host/client model
-    - Lobby discovery via broadcast
+    - Lobby discovery via broadcast (LAN)
+    - Direct IP connection (Internet)
     - Player input synchronization
     """
 
-    def __init__(self, is_host=False):
+    def __init__(self, is_host=False, direct_ip=None):
         self.is_host = is_host
+        self.direct_ip = direct_ip  # For direct IP connection
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -27,16 +29,22 @@ class NetworkManager:
         self.my_player_id = None
         self.discovery_timer = 0
         self.connection_established = False
+        self.my_ip = self._get_local_ip()
 
         if is_host:
             try:
                 self.socket.bind(('', NETWORK_PORT))
                 self.connection_established = True
+                print(f"Hosting on {self.my_ip}:{NETWORK_PORT}")
             except OSError as e:
                 print(f"Failed to bind to port {NETWORK_PORT}: {e}")
                 self.connection_established = False
         else:
             self.socket.bind(('', 0))
+            if direct_ip:
+                # Set host address directly for IP connection
+                self.host_address = (direct_ip, NETWORK_PORT)
+                print(f"Connecting to {direct_ip}:{NETWORK_PORT}")
 
     def start(self):
         """Start networking"""
@@ -66,17 +74,36 @@ class NetworkManager:
         message = json.dumps({'type': 'DISCOVER', 'version': '1.0'})
         self.socket.sendto(message.encode(), ('<broadcast>', NETWORK_PORT))
 
+    def _get_local_ip(self):
+        """Get the local IP address"""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+
     def update(self):
         """Process network messages"""
         if not self.running:
             return
 
         # Periodically send discovery if client and not connected
-        if not self.is_host and not self.host_address:
-            self.discovery_timer += 1
-            if self.discovery_timer >= 30:  # Every second at 30fps
-                self._send_discovery()
-                self.discovery_timer = 0
+        if not self.is_host:
+            if not self.host_address and not self.direct_ip:
+                # Broadcast discovery for LAN
+                self.discovery_timer += 1
+                if self.discovery_timer >= 30:  # Every second at 30fps
+                    self._send_discovery()
+                    self.discovery_timer = 0
+            elif self.direct_ip and not self.my_player_id:
+                # Send join request periodically for direct IP
+                self.discovery_timer += 1
+                if self.discovery_timer >= 30:
+                    self.join_game()
+                    self.discovery_timer = 0
 
         try:
             while True:

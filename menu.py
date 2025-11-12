@@ -165,11 +165,13 @@ class Menu:
                     self.network_status = f"Connected ({len(network_manager.clients) + 1}/4)"
                     return None
             else:
-                # Client: check if found host
-                if network_manager.host_address:
-                    self.state = MenuState.LOBBY
-                    self.network_status = "Connected to host"
-                    return "join_lobby"
+                # Client: check if actually connected to host (not just address set)
+                if network_manager.peer and network_manager.peer.is_connected():
+                    # Only transition once - check if we haven't already sent join
+                    if self.state == MenuState.CONNECTING:
+                        self.state = MenuState.LOBBY
+                        self.network_status = "Connected to host"
+                        return "join_lobby"
 
         # Allow cancel with B key (wait indefinitely otherwise)
         if pyxel.btnp(pyxel.KEY_B):

@@ -323,6 +323,11 @@ class NetworkManager:
     def update(self):
         """Update network state"""
         if self.peer:
+            # Assign player IDs
+            if self.is_host and self.my_player_id is None:
+                self.my_player_id = 0  # Host is always player 0
+                print(f"[NetworkManager] Host: Assigned player_id: {self.my_player_id}")
+
             # Check connection status
             if self.peer.is_connected():
                 if self.is_host and not self.clients:

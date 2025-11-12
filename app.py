@@ -181,8 +181,19 @@ class GameInstance:
             player.update(self.game_map)
 
             # Handle local player input
-            if i == 0 or (not self.use_network):
+            if not self.use_network:
+                # Local multiplayer: handle all players
                 self._handle_player_input(player, i)
+            else:
+                # Network multiplayer: only handle our own player
+                if self.network and self.network.my_player_id is not None:
+                    if i == self.network.my_player_id:
+                        self._handle_player_input(player, i)
+                        # Send our player state to the network
+                        self._send_player_state(player)
+                    else:
+                        # Receive and apply other player's state
+                        self._receive_player_state(player)
 
         # Update bullets
         for bullet in self.bullets:
@@ -283,6 +294,32 @@ class GameInstance:
         x, y = self.spawn_positions[player.id]
         player.x = x
         player.y = y
+
+    def _send_player_state(self, player):
+        """Send local player state to network"""
+        if self.network and self.network.peer:
+            state = {
+                "type": "player_state",
+                "player_id": player.id,
+                "x": player.x,
+                "y": player.y,
+                "direction": player.direction,
+                "hp": player.hp,
+                "alive": player.alive
+            }
+            self.network.peer.send(state)
+
+    def _receive_player_state(self, player):
+        """Receive and apply remote player state"""
+        if self.network and self.network.peer:
+            msg = self.network.peer.recv_latest()
+            if msg and msg.get("type") == "player_state":
+                if msg.get("player_id") == player.id:
+                    player.x = msg.get("x", player.x)
+                    player.y = msg.get("y", player.y)
+                    player.direction = msg.get("direction", player.direction)
+                    player.hp = msg.get("hp", player.hp)
+                    player.alive = msg.get("alive", player.alive)
 
     def draw(self):
         pyxel.cls(COLOR_BG)

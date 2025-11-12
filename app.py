@@ -176,35 +176,36 @@ class GameInstance:
                 self.__init__(self.num_players, self.use_network, self.is_host, self.network)
             return
 
-        # Update network and receive remote player states
-        remote_player_state = None
+        # Update network and receive remote player inputs
+        remote_player_input = None
         if self.network:
             self.network.update()
-            # Receive latest state from remote player
+            # Receive latest input from remote player
             if self.network.peer:
                 msg = self.network.peer.recv_latest()
-                if msg and msg.get("type") == "player_state":
-                    remote_player_state = msg
+                if msg and msg.get("type") == "player_input":
+                    remote_player_input = msg
+                    if pyxel.frame_count % 60 == 0:
+                        print(f"[Game] Received remote input for player {msg.get('player_id')}")
 
         # Update players
         for i, player in enumerate(self.players):
             player.update(self.game_map)
 
-            # Handle local player input
+            # Handle player input
             if not self.use_network:
                 # Local multiplayer: handle all players
                 self._handle_player_input(player, i)
             else:
-                # Network multiplayer: only handle our own player
+                # Network multiplayer
                 if self.network and self.network.my_player_id is not None:
                     if i == self.network.my_player_id:
+                        # Handle our own player's input
                         self._handle_player_input(player, i)
-                        # Send our player state to the network
-                        self._send_player_state(player)
                     else:
-                        # Apply remote player's state
-                        if remote_player_state and remote_player_state.get("player_id") == i:
-                            self._apply_player_state(player, remote_player_state)
+                        # Handle remote player's input
+                        if remote_player_input and remote_player_input.get("player_id") == i:
+                            self._apply_remote_input(player, remote_player_input)
 
         # Update bullets
         for bullet in self.bullets:
@@ -250,6 +251,8 @@ class GameInstance:
         """Handle input for a player"""
         dx = 0
         dy = 0
+        shoot = False
+        place_mine = False
 
         # Movement keys (different for each local player)
         if player_index == 0:
@@ -262,10 +265,9 @@ class GameInstance:
             if pyxel.btn(pyxel.KEY_RIGHT) or pyxel.btn(pyxel.KEY_D):
                 dx = 1
             if pyxel.btnp(pyxel.KEY_SPACE):
-                new_bullets = player.shoot()
-                self.bullets.extend(new_bullets)
+                shoot = True
             if pyxel.btnp(pyxel.KEY_E):
-                self._place_mine(player)
+                place_mine = True
         elif player_index == 1:
             if pyxel.btn(pyxel.KEY_I):
                 dy = -1
@@ -276,11 +278,24 @@ class GameInstance:
             if pyxel.btn(pyxel.KEY_L):
                 dx = 1
             if pyxel.btnp(pyxel.KEY_H):
-                new_bullets = player.shoot()
-                self.bullets.extend(new_bullets)
+                shoot = True
 
+        # Apply movement
         if dx != 0 or dy != 0:
             player.move(dx, dy, self.game_map)
+
+        # Apply actions
+        if shoot:
+            new_bullets = player.shoot()
+            self.bullets.extend(new_bullets)
+        if place_mine:
+            self._place_mine(player)
+
+        # Send input to network if this is our player
+        if self.use_network and self.network and player_index == self.network.my_player_id:
+            self._send_player_input(dx, dy, shoot, place_mine, player_index)
+            if pyxel.frame_count % 60 == 0 and (dx != 0 or dy != 0):
+                print(f"[Game] Sending input for player {player_index}: dx={dx}, dy={dy}")
 
     def _place_mine(self, player):
         """Place a mine at player's location"""
@@ -306,33 +321,36 @@ class GameInstance:
         player.x = x
         player.y = y
 
-    def _send_player_state(self, player):
-        """Send local player state to network"""
+    def _send_player_input(self, dx, dy, shoot, place_mine, player_id):
+        """Send local player input to network"""
         if self.network and self.network.peer:
-            state = {
-                "type": "player_state",
-                "player_id": player.id,
-                "x": player.x,
-                "y": player.y,
-                "direction": player.direction,
-                "hp": player.hp,
-                "alive": player.alive
+            input_data = {
+                "type": "player_input",
+                "player_id": player_id,
+                "dx": dx,
+                "dy": dy,
+                "shoot": shoot,
+                "place_mine": place_mine
             }
-            self.network.peer.send(state)
-            # Debug: print occasionally
-            if pyxel.frame_count % 60 == 0:
-                print(f"[Game] Sending player {player.id} state: pos=({player.x},{player.y})")
+            self.network.peer.send(input_data)
 
-    def _apply_player_state(self, player, state):
-        """Apply remote player state"""
-        player.x = state.get("x", player.x)
-        player.y = state.get("y", player.y)
-        player.direction = state.get("direction", player.direction)
-        player.hp = state.get("hp", player.hp)
-        player.alive = state.get("alive", player.alive)
-        # Debug: print occasionally
-        if pyxel.frame_count % 60 == 0:
-            print(f"[Game] Received player {player.id} state: pos=({player.x},{player.y})")
+    def _apply_remote_input(self, player, input_data):
+        """Apply remote player's input"""
+        dx = input_data.get("dx", 0)
+        dy = input_data.get("dy", 0)
+        shoot = input_data.get("shoot", False)
+        place_mine = input_data.get("place_mine", False)
+
+        # Apply movement
+        if dx != 0 or dy != 0:
+            player.move(dx, dy, self.game_map)
+
+        # Apply actions
+        if shoot:
+            new_bullets = player.shoot()
+            self.bullets.extend(new_bullets)
+        if place_mine:
+            self._place_mine(player)
 
     def draw(self):
         pyxel.cls(COLOR_BG)

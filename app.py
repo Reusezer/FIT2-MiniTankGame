@@ -39,8 +39,9 @@ class TankTankApp:
             self._start_game(num_players=2, use_network=False)
 
         elif action == "setup_network":
-            # Initialize network
+            # Initialize network (only once!)
             if self.network is None:
+                print(f"[App] Creating NetworkManager (is_host={self.menu.is_host})")
                 # Pass direct IP if client has entered one
                 direct_ip = self.menu.host_ip if not self.menu.is_host and self.menu.host_ip else None
                 self.network = NetworkManager(self.menu.is_host, direct_ip=direct_ip)
@@ -52,6 +53,8 @@ class TankTankApp:
                     self.menu.state = MenuState.MAIN_MENU
                     self.network.stop()
                     self.network = None
+            else:
+                print(f"[App] NetworkManager already exists, skipping creation")
 
         elif action == "join_lobby":
             # Client found host, send join request

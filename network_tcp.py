@@ -106,22 +106,25 @@ class NetworkPeer:
 
     def _server_loop(self):
         """Server: wait for client connection"""
-        try:
-            print("Waiting for client...")
-            self.sock.settimeout(30)  # 30 second timeout
-            conn, addr = self.sock.accept()
-            print(f"Client connected from {addr}")
-            self.conn = conn
-            self.conn.settimeout(1.0)  # Set timeout on the connection socket
-            self.connected = True
+        print("Waiting for client...")
+        self.sock.settimeout(None)  # Blocking mode for accept
 
-            # Start send/recv threads
-            threading.Thread(target=self._send_loop, daemon=True).start()
-            threading.Thread(target=self._recv_loop, daemon=True).start()
-        except socket.timeout:
-            print("Server: connection timeout")
-        except OSError as e:
-            print(f"Server error: {e}")
+        while self.running and not self.connected:
+            try:
+                conn, addr = self.sock.accept()
+                print(f"Client connected from {addr}")
+                self.conn = conn
+                self.conn.settimeout(1.0)  # Set timeout on the connection socket
+                self.connected = True
+
+                # Start send/recv threads
+                threading.Thread(target=self._send_loop, daemon=True).start()
+                threading.Thread(target=self._recv_loop, daemon=True).start()
+                break
+            except OSError as e:
+                if self.running:  # Only print if we're still supposed to be running
+                    print(f"Server error: {e}")
+                break
 
     def _client_loop(self):
         """Client: keep trying to connect"""

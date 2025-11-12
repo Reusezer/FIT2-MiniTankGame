@@ -147,7 +147,6 @@ class Menu:
         # Just wait for network to be initialized
         if network_manager and network_manager.running:
             self.state = MenuState.CONNECTING
-            self.connecting_timer = 180  # 6 seconds timeout
 
         if pyxel.btnp(pyxel.KEY_B):
             self.state = MenuState.MAIN_MENU
@@ -156,8 +155,6 @@ class Menu:
         return None
 
     def _update_connecting(self, network_manager):
-        self.connecting_timer -= 1
-
         if network_manager:
             if self.is_host:
                 # Host: check if clients connected
@@ -172,13 +169,7 @@ class Menu:
                     self.network_status = "Connected to host"
                     return "join_lobby"
 
-        # Timeout
-        if self.connecting_timer <= 0:
-            self.error_message = "Connection timeout!"
-            self.state = MenuState.MAIN_MENU
-            return "cancel_network"
-
-        # Allow cancel
+        # Allow cancel with B key (wait indefinitely otherwise)
         if pyxel.btnp(pyxel.KEY_B):
             self.state = MenuState.MAIN_MENU
             self.error_message = "Connection cancelled"
@@ -371,7 +362,7 @@ class Menu:
         if self.is_host:
             title = "WAITING FOR PLAYERS..."
         else:
-            title = "SEARCHING FOR GAME..."
+            title = "CONNECTING TO HOST..."
 
         title_x = SCREEN_WIDTH // 2 - len(title) * 2
         pyxel.text(title_x, 80, title, COLOR_UI)
@@ -381,21 +372,19 @@ class Menu:
         status_x = SCREEN_WIDTH // 2 - len(status) * 2
         pyxel.text(status_x, 110, status, COLOR_WALL)
 
-        # Progress bar
-        progress = 1 - (self.connecting_timer / 180)
-        bar_w = 160
-        bar_h = 10
-        bar_x = SCREEN_WIDTH // 2 - bar_w // 2
-        bar_y = 130
+        # Animated spinner (no progress bar, just wait)
+        spinner_chars = ["|", "/", "-", "\\"]
+        spinner = spinner_chars[(pyxel.frame_count // 10) % 4]
 
-        pyxel.rect(bar_x, bar_y, bar_w, bar_h, COLOR_WALL)
-        pyxel.rect(bar_x, bar_y, int(bar_w * progress), bar_h, COLOR_PLAYER_3)
-        pyxel.rectb(bar_x, bar_y, bar_w, bar_h, COLOR_UI)
+        # Center the spinner
+        pyxel.text(SCREEN_WIDTH // 2 - 2, 130, spinner, COLOR_ITEM)
 
-        # Spinner
-        spinner_chars = [".", "..", "..."]
-        spinner = spinner_chars[(pyxel.frame_count // 20) % 3]
-        pyxel.text(SCREEN_WIDTH // 2 - 4, 155, spinner, COLOR_ITEM)
+        # Waiting message with dots
+        dots_chars = ["   ", ".  ", ".. ", "..."]
+        dots = dots_chars[(pyxel.frame_count // 15) % 4]
+        wait_msg = f"Please wait{dots}"
+        wait_x = SCREEN_WIDTH // 2 - len(wait_msg) * 2
+        pyxel.text(wait_x, 150, wait_msg, COLOR_WALL)
 
         # Cancel instruction
         cancel = "Press B to cancel"

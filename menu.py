@@ -443,11 +443,12 @@ class Menu:
                 pyxel.text(error_x, 65, error_text, COLOR_EXPLOSION)
 
         # Player list (moved down to avoid overlap)
+        list_y = 95 if self.is_host else 70
         list_title = "PLAYERS:"
-        pyxel.text(60, 95, list_title, COLOR_UI)
+        pyxel.text(60, list_y, list_title, COLOR_UI)
 
         for i, player in enumerate(self.lobby_players):
-            y = 100 + i * 15
+            y = list_y + 15 + i * 15
             color = [COLOR_PLAYER_1, COLOR_PLAYER_2, COLOR_PLAYER_3, COLOR_PLAYER_4][i % 4]
 
             # Color indicator

@@ -100,7 +100,7 @@ class Menu:
                 self.error_message = "Name cannot be empty!"
 
         # Go back
-        if pyxel.btnp(pyxel.KEY_ESCAPE):
+        if pyxel.btnp(pyxel.KEY_B):
             self.state = MenuState.MAIN_MENU
             self.player_name = ""
             self.error_message = ""
@@ -135,7 +135,7 @@ class Menu:
                 self.error_message = "Invalid IP format!"
 
         # Go back
-        if pyxel.btnp(pyxel.KEY_ESCAPE):
+        if pyxel.btnp(pyxel.KEY_B):
             self.state = MenuState.MAIN_MENU
             self.host_ip = ""
             self.error_message = ""
@@ -149,7 +149,7 @@ class Menu:
             self.state = MenuState.CONNECTING
             self.connecting_timer = 180  # 6 seconds timeout
 
-        if pyxel.btnp(pyxel.KEY_ESCAPE):
+        if pyxel.btnp(pyxel.KEY_B):
             self.state = MenuState.MAIN_MENU
             return "cancel_network"
 
@@ -179,7 +179,7 @@ class Menu:
             return "cancel_network"
 
         # Allow cancel
-        if pyxel.btnp(pyxel.KEY_ESCAPE):
+        if pyxel.btnp(pyxel.KEY_B):
             self.state = MenuState.MAIN_MENU
             self.error_message = "Connection cancelled"
             return "cancel_network"
@@ -204,7 +204,7 @@ class Menu:
                 self.error_message = "Need at least 2 players!"
 
         # Go back
-        if pyxel.btnp(pyxel.KEY_ESCAPE):
+        if pyxel.btnp(pyxel.KEY_B):
             self.state = MenuState.MAIN_MENU
             return "cancel_network"
 
@@ -299,7 +299,7 @@ class Menu:
         inst2_x = SCREEN_WIDTH // 2 - len(inst2) * 2
         pyxel.text(inst2_x, 155, inst2, COLOR_WALL)
 
-        inst3 = "Press ESC to go back"
+        inst3 = "Press B to go back"
         inst3_x = SCREEN_WIDTH // 2 - len(inst3) * 2
         pyxel.text(inst3_x, 170, inst3, COLOR_WALL)
 
@@ -347,7 +347,7 @@ class Menu:
         inst3_x = SCREEN_WIDTH // 2 - len(inst3) * 2
         pyxel.text(inst3_x, 170, inst3, COLOR_WALL)
 
-        inst4 = "Press ESC to go back"
+        inst4 = "Press B to go back"
         inst4_x = SCREEN_WIDTH // 2 - len(inst4) * 2
         pyxel.text(inst4_x, 185, inst4, COLOR_WALL)
 
@@ -398,7 +398,7 @@ class Menu:
         pyxel.text(SCREEN_WIDTH // 2 - 4, 155, spinner, COLOR_ITEM)
 
         # Cancel instruction
-        cancel = "Press ESC to cancel"
+        cancel = "Press B to cancel"
         cancel_x = SCREEN_WIDTH // 2 - len(cancel) * 2
         pyxel.text(cancel_x, 180, cancel, COLOR_WALL)
 
@@ -412,7 +412,7 @@ class Menu:
         status_x = SCREEN_WIDTH // 2 - len(self.network_status) * 2
         pyxel.text(status_x, 50, self.network_status, COLOR_PLAYER_3)
 
-        # Show IP if host
+        # Show IP if host (prominently with box)
         if self.is_host:
             import socket
             try:
@@ -420,15 +420,31 @@ class Menu:
                 s.connect(("8.8.8.8", 80))
                 my_ip = s.getsockname()[0]
                 s.close()
-                ip_text = f"Your IP: {my_ip}:{NETWORK_PORT}"
-                ip_x = SCREEN_WIDTH // 2 - len(ip_text) * 2
-                pyxel.text(ip_x, 65, ip_text, COLOR_ITEM)
-            except:
-                pass
 
-        # Player list
+                # Draw highlighted box
+                box_y = 60
+                box_h = 28
+                pyxel.rect(40, box_y, SCREEN_WIDTH - 80, box_h, COLOR_WALL)
+                pyxel.rectb(40, box_y, SCREEN_WIDTH - 80, box_h, COLOR_ITEM)
+
+                # Label
+                label = "Share this IP:"
+                label_x = SCREEN_WIDTH // 2 - len(label) * 2
+                pyxel.text(label_x, box_y + 5, label, COLOR_UI)
+
+                # IP address in bright yellow
+                ip_text = f"{my_ip}:{NETWORK_PORT}"
+                ip_x = SCREEN_WIDTH // 2 - len(ip_text) * 2
+                pyxel.text(ip_x, box_y + 15, ip_text, COLOR_ITEM)
+            except:
+                # Fallback
+                error_text = "IP: Detection failed"
+                error_x = SCREEN_WIDTH // 2 - len(error_text) * 2
+                pyxel.text(error_x, 65, error_text, COLOR_EXPLOSION)
+
+        # Player list (moved down to avoid overlap)
         list_title = "PLAYERS:"
-        pyxel.text(60, 80, list_title, COLOR_UI)
+        pyxel.text(60, 95, list_title, COLOR_UI)
 
         for i, player in enumerate(self.lobby_players):
             y = 100 + i * 15
@@ -450,7 +466,7 @@ class Menu:
             inst_x = SCREEN_WIDTH // 2 - len(inst) * 2
             pyxel.text(inst_x, 190, inst, COLOR_WALL)
 
-        cancel = "Press ESC to leave"
+        cancel = "Press B to leave"
         cancel_x = SCREEN_WIDTH // 2 - len(cancel) * 2
         pyxel.text(cancel_x, 210, cancel, COLOR_WALL)
 

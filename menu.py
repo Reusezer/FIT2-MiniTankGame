@@ -22,6 +22,7 @@ class Menu:
         self.connecting_timer = 0
         self.error_message = ""
         self.cursor_blink = 0
+        self.network_manager = None  # Store reference for drawing
 
         # Main menu options
         self.main_menu_options = [
@@ -33,6 +34,7 @@ class Menu:
 
     def update(self, network_manager=None):
         self.cursor_blink = (self.cursor_blink + 1) % 60
+        self.network_manager = network_manager  # Store for drawing
 
         if self.state == MenuState.MAIN_MENU:
             return self._update_main_menu()
@@ -365,31 +367,50 @@ class Menu:
             title = "CONNECTING TO HOST..."
 
         title_x = SCREEN_WIDTH // 2 - len(title) * 2
-        pyxel.text(title_x, 80, title, COLOR_UI)
+        pyxel.text(title_x, 50, title, COLOR_UI)
 
-        # Status
-        status = f"Port: {NETWORK_PORT}"
-        status_x = SCREEN_WIDTH // 2 - len(status) * 2
-        pyxel.text(status_x, 110, status, COLOR_WALL)
+        # Show server IP if hosting
+        if self.is_host and self.network_manager:
+            # Draw highlighted box for IP
+            box_y = 75
+            box_h = 38
+            box_w = 180
+            box_x = SCREEN_WIDTH // 2 - box_w // 2
+
+            pyxel.rect(box_x, box_y, box_w, box_h, COLOR_WALL)
+            pyxel.rectb(box_x, box_y, box_w, box_h, COLOR_ITEM)
+
+            # Label
+            label = "Share this IP:"
+            label_x = SCREEN_WIDTH // 2 - len(label) * 2
+            pyxel.text(label_x, box_y + 8, label, COLOR_UI)
+
+            # IP address in bright yellow
+            my_ip = self.network_manager.my_ip
+            ip_text = f"{my_ip}:{NETWORK_PORT}"
+            ip_x = SCREEN_WIDTH // 2 - len(ip_text) * 2
+            pyxel.text(ip_x, box_y + 22, ip_text, COLOR_ITEM)
 
         # Animated spinner (no progress bar, just wait)
         spinner_chars = ["|", "/", "-", "\\"]
         spinner = spinner_chars[(pyxel.frame_count // 10) % 4]
 
         # Center the spinner
-        pyxel.text(SCREEN_WIDTH // 2 - 2, 130, spinner, COLOR_ITEM)
+        spinner_y = 135 if self.is_host else 100
+        pyxel.text(SCREEN_WIDTH // 2 - 2, spinner_y, spinner, COLOR_ITEM)
 
         # Waiting message with dots
         dots_chars = ["   ", ".  ", ".. ", "..."]
         dots = dots_chars[(pyxel.frame_count // 15) % 4]
         wait_msg = f"Please wait{dots}"
         wait_x = SCREEN_WIDTH // 2 - len(wait_msg) * 2
-        pyxel.text(wait_x, 150, wait_msg, COLOR_WALL)
+        wait_y = spinner_y + 25
+        pyxel.text(wait_x, wait_y, wait_msg, COLOR_WALL)
 
         # Cancel instruction
         cancel = "Press B to cancel"
         cancel_x = SCREEN_WIDTH // 2 - len(cancel) * 2
-        pyxel.text(cancel_x, 180, cancel, COLOR_WALL)
+        pyxel.text(cancel_x, 200, cancel, COLOR_WALL)
 
     def _draw_lobby(self):
         # Title

@@ -37,6 +37,7 @@ class NetworkPeer:
         # Create socket
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
         # Get local IP
         self.my_ip = self._get_local_ip()
@@ -67,10 +68,22 @@ class NetworkPeer:
     def send(self, msg_dict):
         """
         Send a message (dict). Non-blocking, safe to call from update().
-        Example: peer.send({"type": "input", "x": 10, "y": 20})
         """
         if self.connected:
             self.outbox.put(msg_dict)
+
+    def recv_all(self):
+        """
+        Get ALL pending messages as a list. Call from update().
+        Returns: list of dicts (may be empty)
+        """
+        messages = []
+        while not self.inbox.empty():
+            try:
+                messages.append(self.inbox.get_nowait())
+            except queue.Empty:
+                break
+        return messages
 
     def recv_latest(self):
         """
@@ -92,6 +105,7 @@ class NetworkPeer:
     def stop(self):
         """Cleanly shut down networking"""
         self.running = False
+        self.connected = False
         if self.conn:
             try:
                 self.conn.close()
@@ -107,35 +121,38 @@ class NetworkPeer:
     def _server_loop(self):
         """Server: wait for client connection"""
         print("Waiting for client...")
-        self.sock.settimeout(None)  # Blocking mode for accept
 
         while self.running and not self.connected:
             try:
+                self.sock.settimeout(1.0)
                 conn, addr = self.sock.accept()
                 print(f"Client connected from {addr}")
                 self.conn = conn
-                self.conn.settimeout(1.0)  # Set timeout on the connection socket
+                self.conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 self.connected = True
 
                 # Start send/recv threads
                 threading.Thread(target=self._send_loop, daemon=True).start()
                 threading.Thread(target=self._recv_loop, daemon=True).start()
                 break
+            except socket.timeout:
+                continue
             except OSError as e:
-                if self.running:  # Only print if we're still supposed to be running
+                if self.running:
                     print(f"Server error: {e}")
                 break
 
     def _client_loop(self):
         """Client: keep trying to connect"""
         retry_count = 0
-        max_retries = 10
+        max_retries = 30
 
         while self.running and retry_count < max_retries:
             try:
+                self.sock.settimeout(3.0)
                 self.sock.connect((self.server_ip, self.port))
                 self.conn = self.sock
-                self.conn.settimeout(1.0)  # Set timeout on the connection socket
+                self.conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 self.connected = True
                 print("Connected to server!")
 
@@ -143,10 +160,10 @@ class NetworkPeer:
                 threading.Thread(target=self._send_loop, daemon=True).start()
                 threading.Thread(target=self._recv_loop, daemon=True).start()
                 break
-            except OSError:
+            except (socket.timeout, OSError) as e:
                 retry_count += 1
-                print(f"Connection attempt {retry_count}/{max_retries}...")
-                time.sleep(1)
+                print(f"Connection attempt {retry_count}/{max_retries}... ({e})")
+                time.sleep(0.5)
 
         if retry_count >= max_retries:
             print("Failed to connect after max retries")
@@ -155,19 +172,21 @@ class NetworkPeer:
         """Background thread: send messages from outbox"""
         while self.running and self.connected:
             try:
-                msg = self.outbox.get(timeout=0.1)
+                msg = self.outbox.get(timeout=0.05)
                 data = (json.dumps(msg) + "\n").encode("utf-8")
                 self.conn.sendall(data)
             except queue.Empty:
                 continue
-            except OSError:
-                print("Connection lost (send)")
+            except OSError as e:
+                if self.running:
+                    print(f"Connection lost (send): {e}")
                 self.connected = False
                 break
 
     def _recv_loop(self):
         """Background thread: receive messages into inbox"""
         buffer = b""
+        self.conn.settimeout(0.1)
 
         while self.running and self.connected:
             try:
@@ -187,100 +206,14 @@ class NetworkPeer:
                             msg = json.loads(line.decode("utf-8"))
                             self.inbox.put(msg)
                         except json.JSONDecodeError:
-                            print(f"Invalid JSON: {line}")
+                            pass
             except socket.timeout:
-                # Timeout is expected, just continue
                 continue
             except OSError as e:
-                print(f"Connection lost (recv): {e}")
+                if self.running:
+                    print(f"Connection lost (recv): {e}")
                 self.connected = False
                 break
-
-
-class GameNetworkManager:
-    """
-    High-level wrapper for Tank Tank game networking
-    Handles player state sync, lobby, etc.
-    """
-
-    def __init__(self, is_server, server_ip=None):
-        self.peer = NetworkPeer(is_server, server_ip)
-        self.is_server = is_server
-        self.my_player_id = 0 if is_server else 1
-        self.other_player_id = 1 if is_server else 0
-
-        # Game state
-        self.player_states = {}  # {player_id: {x, y, direction, hp, ...}}
-        self.player_inputs = {}  # {player_id: {keys_pressed}}
-
-    def send_player_state(self, player_data):
-        """
-        Send my player state to opponent
-        player_data = {x, y, direction, hp, kills, alive}
-        """
-        self.peer.send({
-            "type": "player_state",
-            "player_id": self.my_player_id,
-            "data": player_data
-        })
-
-    def send_input(self, input_data):
-        """
-        Send input (lighter than full state)
-        input_data = {dx, dy, shoot, place_mine}
-        """
-        self.peer.send({
-            "type": "input",
-            "player_id": self.my_player_id,
-            "data": input_data
-        })
-
-    def send_game_event(self, event_type, event_data):
-        """
-        Send game events (bullet fired, player hit, etc.)
-        """
-        self.peer.send({
-            "type": "game_event",
-            "event": event_type,
-            "data": event_data
-        })
-
-    def update(self):
-        """Call this in Pyxel update() to process network messages"""
-        msg = self.peer.recv_latest()
-
-        if msg:
-            msg_type = msg.get("type")
-
-            if msg_type == "player_state":
-                player_id = msg.get("player_id")
-                data = msg.get("data")
-                self.player_states[player_id] = data
-
-            elif msg_type == "input":
-                player_id = msg.get("player_id")
-                data = msg.get("data")
-                self.player_inputs[player_id] = data
-
-            elif msg_type == "game_event":
-                # Handle game events
-                event = msg.get("event")
-                data = msg.get("data")
-                # Process event (to be implemented)
-
-        return msg
-
-    def get_other_player_state(self):
-        """Get opponent's latest state"""
-        return self.player_states.get(self.other_player_id)
-
-    def is_connected(self):
-        """Check if connected"""
-        return self.peer.is_connected()
-
-    def stop(self):
-        """Cleanup"""
-        self.peer.stop()
 
 
 # For backward compatibility with old code
@@ -296,9 +229,9 @@ class NetworkManager:
         self.host_address = None
         self.clients = {}
         self.my_player_id = None
-        self.player_names = {}  # Map of player_id -> player_name
+        self.player_names = {}
         self.my_player_name = ""
-        self.game_starting = False  # Flag for when host starts game
+        self.game_starting = False
 
         # Create TCP peer
         self.peer = None
@@ -308,6 +241,7 @@ class NetworkManager:
                 self.peer = NetworkPeer(is_server=True)
                 self.connection_established = True
                 self.my_ip = self.peer.my_ip
+                self.my_player_id = 0  # Host is player 0
             except Exception as e:
                 print(f"Failed to start server: {e}")
                 self.connection_established = False
@@ -322,52 +256,41 @@ class NetworkManager:
 
     def update(self):
         """Update network state"""
-        if self.peer:
-            # Assign player IDs
-            if self.is_host and self.my_player_id is None:
-                self.my_player_id = 0  # Host is always player 0
-                print(f"[NetworkManager] Host: Assigned player_id: {self.my_player_id}")
+        if not self.peer:
+            return
 
-            # Check connection status
-            if self.peer.is_connected():
-                if self.is_host and not self.clients:
-                    # Client connected
-                    self.clients = {("client", NETWORK_PORT): 1}
-                    print(f"[NetworkManager] Host: Client connected, clients dict: {self.clients}")
-                elif not self.is_host and not self.my_player_id:
-                    # Connected to host
-                    self.my_player_id = 1
-                    print(f"[NetworkManager] Client: Connected to host, player_id: {self.my_player_id}")
+        # Check connection status
+        if self.peer.is_connected():
+            if self.is_host and not self.clients:
+                self.clients = {("client", NETWORK_PORT): 1}
+                print(f"[NetworkManager] Host: Client connected")
+            elif not self.is_host and self.my_player_id is None:
+                self.my_player_id = 1
+                print(f"[NetworkManager] Client: Connected, player_id=1")
 
-            # Process incoming messages
-            msg = self.peer.recv_latest()
-            if msg:
-                self._handle_message(msg)
+        # Process incoming messages
+        messages = self.peer.recv_all()
+        for msg in messages:
+            self._handle_message(msg)
 
     def _handle_message(self, msg):
         """Handle incoming network messages"""
         msg_type = msg.get("type")
 
         if msg_type == "player_join":
-            # Store player name
             player_id = msg.get("player_id", 1)
             player_name = msg.get("name", f"Player {player_id}")
             self.player_names[player_id] = player_name
             print(f"[NetworkManager] Player joined: {player_name} (ID: {player_id})")
-
-            # If we're the host, send back the full player list
             if self.is_host:
                 self.send_player_list()
 
         elif msg_type == "player_list":
-            # Update full player list (from host)
             self.player_names = msg.get("players", {})
             print(f"[NetworkManager] Received player list: {self.player_names}")
 
         elif msg_type == "start_game":
-            # Host is starting the game
-            print(f"[NetworkManager] Received start_game signal from host")
-            # Signal that we should start (app will check for this)
+            print(f"[NetworkManager] Received start_game signal")
             self.game_starting = True
 
     def stop(self):
@@ -380,13 +303,12 @@ class NetworkManager:
         """Join game and send player name"""
         if self.peer and self.peer.is_connected():
             self.my_player_name = player_name
-            # Send join message with player name
             self.peer.send({
                 "type": "player_join",
-                "player_id": 1,  # Client is always player 1 in TCP (will be assigned by host)
+                "player_id": 1,
                 "name": player_name
             })
-            print(f"[NetworkManager] Sending join request with name: {player_name}")
+            print(f"[NetworkManager] Sent join request: {player_name}")
             return True
         return False
 
@@ -397,7 +319,6 @@ class NetworkManager:
                 "type": "player_list",
                 "players": self.player_names
             })
-            print(f"[NetworkManager] Sent player list: {self.player_names}")
 
     def broadcast_start_game(self):
         """Host broadcasts game start to all clients"""
@@ -406,4 +327,4 @@ class NetworkManager:
                 "type": "start_game",
                 "num_players": len(self.player_names)
             })
-            print(f"[NetworkManager] Broadcasting start_game to all clients")
+            print(f"[NetworkManager] Broadcasting start_game")

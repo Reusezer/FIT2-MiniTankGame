@@ -177,16 +177,15 @@ class GameInstance:
             return
 
         # Update network and receive remote player inputs
-        remote_player_input = None
+        remote_inputs = []
         if self.network:
             self.network.update()
-            # Receive latest input from remote player
+            # Receive ALL inputs from remote player
             if self.network.peer:
-                msg = self.network.peer.recv_latest()
-                if msg and msg.get("type") == "player_input":
-                    remote_player_input = msg
-                    if pyxel.frame_count % 60 == 0:
-                        print(f"[Game] Received remote input for player {msg.get('player_id')}")
+                messages = self.network.peer.recv_all()
+                for msg in messages:
+                    if msg.get("type") == "player_input":
+                        remote_inputs.append(msg)
 
         # Update players
         for i, player in enumerate(self.players):
@@ -203,9 +202,10 @@ class GameInstance:
                         # Handle our own player's input
                         self._handle_player_input(player, i)
                     else:
-                        # Handle remote player's input
-                        if remote_player_input and remote_player_input.get("player_id") == i:
-                            self._apply_remote_input(player, remote_player_input)
+                        # Apply ALL remote inputs for this player
+                        for remote_input in remote_inputs:
+                            if remote_input.get("player_id") == i:
+                                self._apply_remote_input(player, remote_input)
 
         # Update bullets
         for bullet in self.bullets:
@@ -254,8 +254,10 @@ class GameInstance:
         shoot = False
         place_mine = False
 
-        # Movement keys (different for each local player)
-        if player_index == 0:
+        # For network play, each player uses WASD/Arrow keys on their own machine
+        # For local multiplayer, player 0 uses WASD/Arrows, player 1 uses IJKL
+        if self.use_network or player_index == 0:
+            # Primary controls: WASD or Arrow keys
             if pyxel.btn(pyxel.KEY_UP) or pyxel.btn(pyxel.KEY_W):
                 dy = -1
             if pyxel.btn(pyxel.KEY_DOWN) or pyxel.btn(pyxel.KEY_S):
@@ -269,6 +271,7 @@ class GameInstance:
             if pyxel.btnp(pyxel.KEY_E):
                 place_mine = True
         elif player_index == 1:
+            # Local multiplayer only: secondary controls for player 2
             if pyxel.btn(pyxel.KEY_I):
                 dy = -1
             if pyxel.btn(pyxel.KEY_K):
@@ -294,8 +297,6 @@ class GameInstance:
         # Send input to network if this is our player
         if self.use_network and self.network and player_index == self.network.my_player_id:
             self._send_player_input(dx, dy, shoot, place_mine, player_index)
-            if pyxel.frame_count % 60 == 0 and (dx != 0 or dy != 0):
-                print(f"[Game] Sending input for player {player_index}: dx={dx}, dy={dy}")
 
     def _place_mine(self, player):
         """Place a mine at player's location"""

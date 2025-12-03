@@ -534,7 +534,7 @@ class GameInstance:
     def _send_game_state(self):
         """Host sends periodic full game state sync"""
         if self.network and self.network.peer:
-            # Player states
+            # Player states (including power-up effects)
             players_data = []
             for p in self.players:
                 players_data.append({
@@ -544,7 +544,12 @@ class GameInstance:
                     "direction": p.direction,
                     "hp": p.hp,
                     "kills": p.kills,
-                    "alive": p.alive
+                    "alive": p.alive,
+                    # Power-up states for visual effects
+                    "has_shield": p.has_shield,
+                    "has_triple_shot": p.has_triple_shot,
+                    "has_speed_boost": p.has_speed_boost,
+                    "has_full_vision": p.has_full_vision
                 })
 
             # Item states
@@ -594,7 +599,8 @@ class GameInstance:
                 "type": "item_pickup",
                 "x": item.x,
                 "y": item.y,
-                "player_id": player_id
+                "player_id": player_id,
+                "item_type": item.type  # Include item type for immediate effect
             })
 
     def _send_player_damage(self, player, died, attacker_id):
@@ -663,6 +669,11 @@ class GameInstance:
                 player.hp = pdata.get("hp", player.hp)
                 player.kills = pdata.get("kills", player.kills)
                 player.alive = pdata.get("alive", player.alive)
+                # Sync power-up states for visual effects
+                player.has_shield = pdata.get("has_shield", player.has_shield)
+                player.has_triple_shot = pdata.get("has_triple_shot", player.has_triple_shot)
+                player.has_speed_boost = pdata.get("has_speed_boost", player.has_speed_boost)
+                player.has_full_vision = pdata.get("has_full_vision", player.has_full_vision)
 
         # Update items
         items_data = msg.get("items", [])
@@ -703,12 +714,15 @@ class GameInstance:
         x = msg.get("x")
         y = msg.get("y")
         player_id = msg.get("player_id")
+        item_type = msg.get("item_type")
 
-        # Find and remove the item
+        # Activate item effect on player immediately
+        if player_id is not None and player_id < len(self.players) and item_type is not None:
+            self.players[player_id].activate_item(item_type)
+
+        # Find and remove the item from the list
         for item in self.item_spawner.items:
             if abs(item.x - x) < 1 and abs(item.y - y) < 1:
-                if player_id < len(self.players):
-                    self.players[player_id].activate_item(item.type)
                 item.active = False
                 break
 

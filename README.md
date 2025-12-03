@@ -1,90 +1,285 @@
-# Tank Tank - Local Wi-Fi 2D Tank Battle Game
+# Tank Tank
 
-A retro-style 2D tank battle game built with Pyxel, supporting local network multiplayer.
+A retro-style 2D tank battle game built with Python and Pyxel. Battle your friends locally or over LAN in intense tank combat with reflective bullets, power-ups, and strategic gameplay.
+
+![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![Pyxel](https://img.shields.io/badge/Pyxel-1.9+-green.svg)
 
 ## Features
 
-- **Interactive Menu System** - Easy navigation with network connection testing
-- **2D top-down tank combat** - Retro pixel art style
-- **Local Wi-Fi multiplayer** (2-4 players) - Host or join games on same network
-- **Bullet reflection mechanics** - 4 types of mirror surfaces
-- **Power-up items** - Triple shot, shield, mine, speed boost, full vision
-- **Tank track trails** - Visual feedback for movement
-- **Player name input** - Customize your identity in multiplayer
-- **Lobby system** - Wait for players before starting
-- **First to 5 kills wins**
+- **Local Multiplayer**: 2 players on the same device
+- **LAN Multiplayer**: Play over local network with direct IP connection
+- **Reflective Bullets**: Bullets bounce off mirror surfaces for strategic shots
+- **Power-ups**: Triple shot, shield, speed boost, full vision, and mines
+- **Procedurally Generated Maps**: Every game has a unique battlefield
+- **Retro Pixel Art**: Classic 16-color aesthetic
 
-## Requirements
+## Installation
+
+### Prerequisites
+
+- Python 3.8 or higher
+- pip (Python package manager)
+
+### Quick Install
 
 ```bash
+# Navigate to the project directory
+cd Mini-Project
+
+# Install Pyxel
 pip install pyxel
+
+# Run the game
+python3 main.py
 ```
+
+### Dependencies
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| pyxel   | 1.9+    | Game engine and graphics |
 
 ## How to Play
 
-### With Menu (Recommended)
+### Starting the Game
 
 ```bash
-python main.py
+python3 main.py
 ```
 
-This will show a menu where you can:
+### Game Modes
 
-- Start local multiplayer (2 players on same device)
-- Host a network game (wait for players to join)
-- Join a network game (search for available hosts)
+#### Local Multiplayer
+1. Select "LOCAL MULTIPLAYER" from the menu
+2. Two players share the same keyboard
+3. First to 5 kills wins!
 
-### Quick Start (Skip Menu)
+#### Network Multiplayer (LAN)
 
-```bash
-python main.py --quick-local
-```
+**Hosting a Game:**
+1. Select "HOST NETWORK GAME"
+2. Enter your player name
+3. Share the displayed IP address with your friend
+4. Wait for them to connect
+5. Press Enter to start
 
-Immediately starts a 2-player local game.
+**Joining a Game:**
+1. Select "JOIN BY IP ADDRESS"
+2. Enter your player name
+3. Enter the host's IP address (e.g., `192.168.1.100`)
+4. Wait for host to start the game
 
-## Controls
+### Controls
 
-### Menu Navigation
+#### Network Game (Both Players)
+| Key | Action |
+|-----|--------|
+| W / Up Arrow | Move up |
+| S / Down Arrow | Move down |
+| A / Left Arrow | Move left |
+| D / Right Arrow | Move right |
+| Space | Shoot |
+| E | Place mine |
 
-- W/S or Up/Down: Navigate options
-- Space/Enter: Select option
-- ESC: Go back
-- Type your name when prompted
+#### Local Multiplayer
 
-### In-Game
+**Player 1:**
+| Key | Action |
+|-----|--------|
+| W / Up Arrow | Move up |
+| S / Down Arrow | Move down |
+| A / Left Arrow | Move left |
+| D / Right Arrow | Move right |
+| Space | Shoot |
+| E | Place mine |
 
-- Arrow Keys / WASD: Move tank (Player 1)
-- IJKL: Move tank (Player 2 in local multiplayer)
-- Space: Shoot (Player 1)
-- H: Shoot (Player 2)
-- E: Place mine (Player 1)
-- Q: Quit
-- R: Restart (when game over)
-- ESC: Return to menu (when game over)
+**Player 2:**
+| Key | Action |
+|-----|--------|
+| I | Move up |
+| K | Move down |
+| J | Move left |
+| L | Move right |
+| H | Shoot |
 
-## Game Rules
+#### General Controls
+| Key | Action |
+|-----|--------|
+| Q | Quit game |
+| R | Restart (when game over) |
+| B | Go back (in menus) |
+| Enter | Confirm selection |
 
-- Each tank has 3 HP
-- Getting hit 3 times causes respawn
-- Items spawn randomly and activate on pickup
-- First player to reach 5 kills wins
+## Gameplay Mechanics
+
+### Combat
+- Each tank has **3 HP**
+- Getting hit reduces HP by 1
+- At 0 HP, the tank respawns at its starting position
+- First player to score **5 kills** wins
+
+### Bullet Reflection
+Bullets bounce off mirror surfaces:
+- **Horizontal mirrors (-)**: Reflect bullets vertically
+- **Vertical mirrors (|)**: Reflect bullets horizontally
+- **Diagonal mirrors (/ \\)**: Reflect bullets at 45-degree angles
+- Bullets can bounce up to **3 times** before disappearing
+
+### Power-ups
+
+| Item | Duration | Effect |
+|------|----------|--------|
+| Triple Shot | 10 sec | Shoot 3 bullets in a spread pattern |
+| Shield | Until hit | Blocks the next damage |
+| Speed Boost | 10 sec | 1.5x movement speed |
+| Full Vision | 10 sec | See the entire map |
+| Mine | 20 sec | Place a trap that damages enemies |
 
 ## Project Structure
 
-```text
-Mini-Project/
-├── main.py              # Entry point with CLI args
-├── app.py               # Main application with menu integration
-├── menu.py              # Menu and lobby UI system
-├── game.py              # Original game class (for quick-start)
-├── player.py            # Player/Tank class
-├── bullet.py            # Bullet physics and reflection
-├── map_generator.py     # Procedural map generation
-├── items.py             # Power-up items and mines
-├── network.py           # UDP networking with discovery
-├── constants.py         # Game constants and configuration
-├── README.md            # This file
-├── QUICKSTART.md        # Quick start guide
-├── DESIGN.md            # Design document
-└── requirements.txt     # Python dependencies
 ```
+Mini-Project/
+├── main.py           # Entry point
+├── app.py            # Main application with menu integration
+├── game.py           # Core game logic
+├── player.py         # Tank/player class
+├── bullet.py         # Bullet physics and reflection
+├── items.py          # Power-ups and mines
+├── map_generator.py  # Procedural map generation
+├── menu.py           # Menu system and UI
+├── network_tcp.py    # TCP networking for multiplayer
+├── network.py        # Legacy UDP networking (unused)
+├── constants.py      # Game configuration
+├── Docs/
+│   ├── DESIGN.md     # Detailed design document
+│   └── PROJECT_STRUCTURE.txt
+└── README.md         # This file
+```
+
+## Technical Details
+
+### Architecture
+
+The game follows a modular architecture:
+
+- **TankTankApp**: Main application controller handling menu and game states
+- **GameInstance**: Manages game loop, players, bullets, and items
+- **NetworkManager**: Handles TCP connections for LAN multiplayer
+- **Menu**: State machine for all menu screens
+
+### Network Protocol
+
+LAN multiplayer uses TCP with JSON messages:
+
+```json
+// Player input (sent every frame with movement)
+{"type": "player_input", "player_id": 0, "dx": 1, "dy": 0, "shoot": false, "place_mine": false}
+
+// Game start signal (host to client)
+{"type": "start_game", "num_players": 2}
+
+// Player join (client to host)
+{"type": "player_join", "player_id": 1, "name": "Player2"}
+
+// Player list (host to client)
+{"type": "player_list", "players": {"0": "Host", "1": "Client"}}
+```
+
+### Performance
+
+- **Resolution**: 256x256 pixels
+- **Frame Rate**: 30 FPS
+- **Map Size**: 32x32 tiles
+- **Network**: TCP with SO_KEEPALIVE and TCP_NODELAY for low latency
+
+## Troubleshooting
+
+### Game won't start
+```bash
+# Make sure Pyxel is installed
+pip install pyxel
+
+# Try running with Python 3 explicitly
+python3 main.py
+```
+
+### Network connection fails
+- Ensure both players are on the same local network
+- Check that port **9999** is not blocked by firewall
+- Verify the IP address is entered correctly (numbers and dots only)
+- Both players should be able to ping each other
+
+### Controls not working
+- Make sure the game window is focused
+- For local multiplayer, each player uses their designated keys
+
+### Connection drops during game
+- Check your network stability
+- Try moving closer to the WiFi router
+- Ensure no other applications are using high bandwidth
+
+## Development
+
+### Running Tests
+
+```bash
+# Test network connectivity
+python3 test_network_tcp.py
+
+# Test menu system
+python3 test_menu.py
+```
+
+### Quick Start Local Game
+
+```bash
+# Skip menu and start local multiplayer directly
+python3 main.py --quick-local
+```
+
+### File Descriptions
+
+| File | Description |
+|------|-------------|
+| `main.py` | Entry point, handles CLI arguments |
+| `app.py` | Main application with menu/game state management |
+| `game.py` | Core game class with update/draw loops |
+| `player.py` | Tank class with movement, shooting, HP |
+| `bullet.py` | Bullet physics and mirror reflection |
+| `items.py` | Power-up items and mine system |
+| `map_generator.py` | Procedural map generation |
+| `menu.py` | Menu UI and state machine |
+| `network_tcp.py` | TCP networking for LAN play |
+| `constants.py` | All game configuration values |
+
+## Game Design
+
+### Map Tiles
+- **Empty**: Tanks can move through
+- **Wall**: Solid obstacle, blocks bullets
+- **Mirror (H)**: Reflects bullets vertically
+- **Mirror (V)**: Reflects bullets horizontally
+- **Mirror (/)**: Reflects bullets diagonally
+- **Mirror (\\)**: Reflects bullets diagonally (opposite)
+
+### Spawn Points
+- 4 corners of the map are kept clear for spawning
+- Players respawn at their original spawn point
+
+### Victory Condition
+- First player to reach **5 kills** wins the match
+- Press R to restart or B to return to menu
+
+## Credits
+
+- **Game Engine**: [Pyxel](https://github.com/kitao/pyxel) by Takashi Kitao
+- **Inspiration**: Battle City (1985), Tank Trouble
+
+## License
+
+This project is created for educational purposes as part of the FIT2 course at Keio University.
+
+---
+
+**Enjoy the game! May the best tank commander win!**

@@ -128,7 +128,7 @@ class TankTankApp:
 class GameInstance:
     """Game instance that doesn't control the main loop"""
 
-    def __init__(self, num_players=2, use_network=False, is_host=False, network=None):
+    def __init__(self, num_players=2, use_network=False, is_host=False, network=None, shared_map=None):
         self.num_players = num_players
         self.use_network = use_network
         self.is_host = is_host
@@ -138,8 +138,11 @@ class GameInstance:
         from player import Player
         from items import ItemSpawner
 
-        # Generate map
-        self.game_map = MapGenerator.generate()
+        # Generate or use shared map
+        if shared_map is not None:
+            self.game_map = shared_map
+        else:
+            self.game_map = MapGenerator.generate()
         self.spawn_positions = MapGenerator.get_spawn_positions()
 
         # Create players
@@ -159,15 +162,21 @@ class GameInstance:
         # UI
         self.game_over = False
         self.winner = None
+        self.winner_id = None
         self.camera_x = 0
         self.camera_y = 0
 
         # Network
         self.network = network
+        self.state_sync_timer = 0  # Timer for periodic state sync
 
         # Network interpolation for smooth remote player movement
         self.remote_targets = {}  # player_id -> (target_x, target_y, target_dir)
         self.interpolation_speed = 0.3  # How fast to interpolate (0-1)
+
+        # Host sends initial game state (map) to client
+        if use_network and is_host and network:
+            self._send_map_data()
 
     def update(self):
         if pyxel.btnp(pyxel.KEY_Q):
@@ -191,6 +200,22 @@ class GameInstance:
                 msg_type = msg.get("type")
                 if msg_type in ("player_input", "position_sync"):
                     remote_inputs.append(msg)
+                elif msg_type == "map_data":
+                    self._apply_map_data(msg)
+                elif msg_type == "game_state":
+                    self._apply_game_state(msg)
+                elif msg_type == "bullet_spawn":
+                    self._apply_bullet_spawn(msg)
+                elif msg_type == "item_spawn":
+                    self._apply_item_spawn(msg)
+                elif msg_type == "item_pickup":
+                    self._apply_item_pickup(msg)
+                elif msg_type == "player_damage":
+                    self._apply_player_damage(msg)
+                elif msg_type == "explosion":
+                    self._apply_explosion(msg)
+                elif msg_type == "mine_spawn":
+                    self._apply_mine_spawn(msg)
 
         # Update players
         for i, player in enumerate(self.players):
@@ -219,41 +244,80 @@ class GameInstance:
         for bullet in self.bullets:
             bullet.update(self.game_map)
 
-            # Check player collisions
-            for player in self.players:
-                if bullet.check_player_collision(player):
-                    if player.take_damage():
-                        # Player died
-                        killer = self._get_player_by_id(bullet.owner_id)
-                        if killer:
-                            killer.kills += 1
-                            if killer.kills >= WIN_KILLS:
-                                self.game_over = True
-                                self.winner = killer
-                        # Respawn player
-                        self._respawn_player(player)
-                    bullet.active = False
-                    self._add_explosion(bullet.x, bullet.y)
+            # Check player collisions (host authoritative for network games)
+            if not self.use_network or self.is_host:
+                for player in self.players:
+                    if bullet.check_player_collision(player):
+                        died = player.take_damage()
+                        if died:
+                            # Player died
+                            killer = self._get_player_by_id(bullet.owner_id)
+                            if killer:
+                                killer.kills += 1
+                                if killer.kills >= WIN_KILLS:
+                                    self.game_over = True
+                                    self.winner = killer
+                                    self.winner_id = killer.id
+                            # Respawn player
+                            self._respawn_player(player)
+                        bullet.active = False
+                        self._add_explosion(bullet.x, bullet.y)
+                        # Sync damage to client
+                        if self.use_network and self.is_host:
+                            self._send_player_damage(player, died, bullet.owner_id)
+                            self._send_explosion(bullet.x, bullet.y)
 
         # Remove inactive bullets
         self.bullets = [b for b in self.bullets if b.active]
 
-        # Update mines
-        for mine in self.mines:
-            mine.update()
-            for player in self.players:
-                if mine.check_trigger(player):
-                    if player.take_damage():
-                        self._respawn_player(player)
-                    self._add_explosion(mine.x, mine.y)
+        # Update mines (host authoritative)
+        if not self.use_network or self.is_host:
+            for mine in self.mines:
+                mine.update()
+                for player in self.players:
+                    if mine.check_trigger(player):
+                        died = player.take_damage()
+                        if died:
+                            self._respawn_player(player)
+                        self._add_explosion(mine.x, mine.y)
+                        if self.use_network and self.is_host:
+                            self._send_player_damage(player, died, mine.owner_id)
+                            self._send_explosion(mine.x, mine.y)
 
-        self.mines = [m for m in self.mines if m.active]
+            self.mines = [m for m in self.mines if m.active]
 
-        # Update items
-        self.item_spawner.update(self.players)
+        # Update items (host authoritative for spawning)
+        if not self.use_network or self.is_host:
+            old_item_count = len(self.item_spawner.items)
+            self.item_spawner.update(self.players)
+
+            # Check for new item spawns
+            if self.use_network and self.is_host:
+                if len(self.item_spawner.items) > old_item_count:
+                    # New item was spawned, sync it
+                    new_item = self.item_spawner.items[-1]
+                    self._send_item_spawn(new_item)
+
+                # Check for item pickups
+                for player in self.players:
+                    for item in self.item_spawner.items:
+                        if not item.active:
+                            self._send_item_pickup(item, player.id)
+        else:
+            # Client: just update item animations
+            for item in self.item_spawner.items:
+                item.update()
+            self.item_spawner.items = [item for item in self.item_spawner.items if item.active]
 
         # Update explosions
         self.explosions = [(x, y, t - 1) for x, y, t in self.explosions if t > 1]
+
+        # Host: periodic full state sync (every 30 frames = 1 second)
+        if self.use_network and self.is_host:
+            self.state_sync_timer += 1
+            if self.state_sync_timer >= 30:
+                self._send_game_state()
+                self.state_sync_timer = 0
 
     def _handle_player_input(self, player, player_index):
         """Handle input for a player"""
@@ -299,6 +363,10 @@ class GameInstance:
         if shoot:
             new_bullets = player.shoot()
             self.bullets.extend(new_bullets)
+            # Host syncs bullets to client
+            if self.use_network and self.is_host:
+                for bullet in new_bullets:
+                    self._send_bullet_spawn(bullet)
         if place_mine:
             self._place_mine(player)
 
@@ -317,6 +385,9 @@ class GameInstance:
         if player.alive:
             mine = Mine(player.x, player.y, player.id)
             self.mines.append(mine)
+            # Host syncs mine to client
+            if self.use_network and self.is_host:
+                self._send_mine_spawn(mine)
 
     def _add_explosion(self, x, y):
         """Add explosion effect"""
@@ -390,6 +461,10 @@ class GameInstance:
         if shoot:
             new_bullets = player.shoot()
             self.bullets.extend(new_bullets)
+            # Host syncs bullets to client
+            if self.is_host:
+                for bullet in new_bullets:
+                    self._send_bullet_spawn(bullet)
         if place_mine:
             self._place_mine(player)
 
@@ -420,6 +495,241 @@ class GameInstance:
                     # Smooth interpolation
                     player.x += dx * self.interpolation_speed
                     player.y += dy * self.interpolation_speed
+
+    # ===== Network Sync Methods (Host -> Client) =====
+
+    def _send_map_data(self):
+        """Host sends map data to client at game start"""
+        if self.network and self.network.peer:
+            # Flatten the 2D map array
+            flat_map = []
+            for row in self.game_map:
+                flat_map.extend(row)
+            self.network.peer.send({
+                "type": "map_data",
+                "map": flat_map,
+                "width": MAP_WIDTH,
+                "height": MAP_HEIGHT
+            })
+            print("[GameInstance] Host sent map data to client")
+
+    def _send_game_state(self):
+        """Host sends periodic full game state sync"""
+        if self.network and self.network.peer:
+            # Player states
+            players_data = []
+            for p in self.players:
+                players_data.append({
+                    "id": p.id,
+                    "x": p.x,
+                    "y": p.y,
+                    "direction": p.direction,
+                    "hp": p.hp,
+                    "kills": p.kills,
+                    "alive": p.alive
+                })
+
+            # Item states
+            items_data = []
+            for item in self.item_spawner.items:
+                items_data.append({
+                    "x": item.x,
+                    "y": item.y,
+                    "type": item.type,
+                    "active": item.active
+                })
+
+            self.network.peer.send({
+                "type": "game_state",
+                "players": players_data,
+                "items": items_data,
+                "game_over": self.game_over,
+                "winner_id": self.winner_id
+            })
+
+    def _send_bullet_spawn(self, bullet):
+        """Host sends bullet spawn to client"""
+        if self.network and self.network.peer:
+            self.network.peer.send({
+                "type": "bullet_spawn",
+                "x": bullet.x,
+                "y": bullet.y,
+                "vx": bullet.vx,
+                "vy": bullet.vy,
+                "owner_id": bullet.owner_id
+            })
+
+    def _send_item_spawn(self, item):
+        """Host sends item spawn to client"""
+        if self.network and self.network.peer:
+            self.network.peer.send({
+                "type": "item_spawn",
+                "x": item.x,
+                "y": item.y,
+                "item_type": item.type
+            })
+
+    def _send_item_pickup(self, item, player_id):
+        """Host sends item pickup to client"""
+        if self.network and self.network.peer:
+            self.network.peer.send({
+                "type": "item_pickup",
+                "x": item.x,
+                "y": item.y,
+                "player_id": player_id
+            })
+
+    def _send_player_damage(self, player, died, attacker_id):
+        """Host sends player damage to client"""
+        if self.network and self.network.peer:
+            self.network.peer.send({
+                "type": "player_damage",
+                "player_id": player.id,
+                "hp": player.hp,
+                "died": died,
+                "attacker_id": attacker_id,
+                "x": player.x,
+                "y": player.y
+            })
+
+    def _send_explosion(self, x, y):
+        """Host sends explosion to client"""
+        if self.network and self.network.peer:
+            self.network.peer.send({
+                "type": "explosion",
+                "x": x,
+                "y": y
+            })
+
+    def _send_mine_spawn(self, mine):
+        """Host sends mine spawn to client"""
+        if self.network and self.network.peer:
+            self.network.peer.send({
+                "type": "mine_spawn",
+                "x": mine.x,
+                "y": mine.y,
+                "owner_id": mine.owner_id
+            })
+
+    # ===== Network Apply Methods (Client receives from Host) =====
+
+    def _apply_map_data(self, msg):
+        """Client applies map data from host"""
+        flat_map = msg.get("map", [])
+        width = msg.get("width", MAP_WIDTH)
+        height = msg.get("height", MAP_HEIGHT)
+
+        # Reconstruct 2D map
+        self.game_map = []
+        for y in range(height):
+            row = flat_map[y * width:(y + 1) * width]
+            self.game_map.append(row)
+
+        # Reinitialize item spawner with new map
+        from items import ItemSpawner
+        self.item_spawner = ItemSpawner(self.game_map)
+        print("[GameInstance] Client received map data from host")
+
+    def _apply_game_state(self, msg):
+        """Client applies full game state from host"""
+        # Update players
+        players_data = msg.get("players", [])
+        for pdata in players_data:
+            player_id = pdata.get("id")
+            if player_id is not None and player_id < len(self.players):
+                player = self.players[player_id]
+                # Only update remote player positions (local player is authoritative)
+                if self.network and player_id != self.network.my_player_id:
+                    self.remote_targets[player_id] = (pdata.get("x"), pdata.get("y"), pdata.get("direction"))
+                # Always sync HP and kills
+                player.hp = pdata.get("hp", player.hp)
+                player.kills = pdata.get("kills", player.kills)
+                player.alive = pdata.get("alive", player.alive)
+
+        # Update items
+        items_data = msg.get("items", [])
+        from items import Item
+        self.item_spawner.items = []
+        for idata in items_data:
+            if idata.get("active", True):
+                item = Item(idata.get("x"), idata.get("y"), idata.get("type"))
+                self.item_spawner.items.append(item)
+
+        # Update game over state
+        self.game_over = msg.get("game_over", False)
+        winner_id = msg.get("winner_id")
+        if winner_id is not None and winner_id < len(self.players):
+            self.winner = self.players[winner_id]
+            self.winner_id = winner_id
+
+    def _apply_bullet_spawn(self, msg):
+        """Client applies bullet spawn from host"""
+        from bullet import Bullet
+        bullet = Bullet(
+            msg.get("x"),
+            msg.get("y"),
+            msg.get("vx"),
+            msg.get("vy"),
+            msg.get("owner_id")
+        )
+        self.bullets.append(bullet)
+
+    def _apply_item_spawn(self, msg):
+        """Client applies item spawn from host"""
+        from items import Item
+        item = Item(msg.get("x"), msg.get("y"), msg.get("item_type"))
+        self.item_spawner.items.append(item)
+
+    def _apply_item_pickup(self, msg):
+        """Client applies item pickup from host"""
+        x = msg.get("x")
+        y = msg.get("y")
+        player_id = msg.get("player_id")
+
+        # Find and remove the item
+        for item in self.item_spawner.items:
+            if abs(item.x - x) < 1 and abs(item.y - y) < 1:
+                if player_id < len(self.players):
+                    self.players[player_id].activate_item(item.type)
+                item.active = False
+                break
+
+    def _apply_player_damage(self, msg):
+        """Client applies player damage from host"""
+        player_id = msg.get("player_id")
+        if player_id is not None and player_id < len(self.players):
+            player = self.players[player_id]
+            player.hp = msg.get("hp", player.hp)
+            died = msg.get("died", False)
+
+            if died:
+                player.alive = False
+                player.respawn_timer = PLAYER_RESPAWN_TIME
+                # Update position to respawn point
+                player.x = msg.get("x", player.x)
+                player.y = msg.get("y", player.y)
+
+                # Update killer's kills
+                attacker_id = msg.get("attacker_id")
+                if attacker_id is not None and attacker_id < len(self.players):
+                    killer = self.players[attacker_id]
+                    killer.kills += 1
+                    if killer.kills >= WIN_KILLS:
+                        self.game_over = True
+                        self.winner = killer
+                        self.winner_id = killer.id
+
+    def _apply_explosion(self, msg):
+        """Client applies explosion from host"""
+        x = msg.get("x")
+        y = msg.get("y")
+        self.explosions.append((x, y, 15))
+
+    def _apply_mine_spawn(self, msg):
+        """Client applies mine spawn from host"""
+        from items import Mine
+        mine = Mine(msg.get("x"), msg.get("y"), msg.get("owner_id"))
+        self.mines.append(mine)
 
     def draw(self):
         pyxel.cls(COLOR_BG)

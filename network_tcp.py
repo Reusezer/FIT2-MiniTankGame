@@ -255,9 +255,9 @@ class NetworkManager:
         self.running = True
 
     def update(self):
-        """Update network state"""
+        """Update network state and return game messages"""
         if not self.peer:
-            return
+            return []
 
         # Check connection status
         if self.peer.is_connected():
@@ -269,9 +269,18 @@ class NetworkManager:
                 print(f"[NetworkManager] Client: Connected, player_id=1")
 
         # Process incoming messages
+        game_messages = []
         messages = self.peer.recv_all()
         for msg in messages:
-            self._handle_message(msg)
+            msg_type = msg.get("type")
+            # Handle lobby/system messages internally
+            if msg_type in ("player_join", "player_list", "start_game"):
+                self._handle_message(msg)
+            else:
+                # Return game messages (like player_input) to the caller
+                game_messages.append(msg)
+
+        return game_messages
 
     def _handle_message(self, msg):
         """Handle incoming network messages"""

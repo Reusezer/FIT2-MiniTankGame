@@ -179,13 +179,17 @@ class GameInstance:
         # Update network and receive remote player inputs
         remote_inputs = []
         if self.network:
-            self.network.update()
-            # Receive ALL inputs from remote player
-            if self.network.peer:
-                messages = self.network.peer.recv_all()
-                for msg in messages:
-                    if msg.get("type") == "player_input":
-                        remote_inputs.append(msg)
+            # Get game messages from network update (lobby messages handled internally)
+            game_messages = self.network.update()
+            if game_messages is None:
+                game_messages = []
+            for msg in game_messages:
+                if msg.get("type") == "player_input":
+                    remote_inputs.append(msg)
+
+            # Debug: log when we receive remote inputs
+            if remote_inputs and pyxel.frame_count % 30 == 0:
+                print(f"[Game] Received {len(remote_inputs)} remote inputs")
 
         # Update players
         for i, player in enumerate(self.players):

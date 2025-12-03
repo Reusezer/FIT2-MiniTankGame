@@ -172,9 +172,21 @@ class NetworkPeer:
         """Background thread: send messages from outbox"""
         while self.running and self.connected:
             try:
-                msg = self.outbox.get(timeout=0.05)
-                data = (json.dumps(msg) + "\n").encode("utf-8")
-                self.conn.sendall(data)
+                # Batch multiple messages if available (reduces syscalls)
+                messages = []
+                try:
+                    # Get first message (blocking)
+                    messages.append(self.outbox.get(timeout=0.033))  # ~30fps
+                    # Get any additional pending messages (non-blocking)
+                    while len(messages) < 5:  # Batch up to 5 messages
+                        messages.append(self.outbox.get_nowait())
+                except queue.Empty:
+                    pass
+
+                if messages:
+                    # Send all messages in one syscall
+                    data = "".join(json.dumps(msg) + "\n" for msg in messages).encode("utf-8")
+                    self.conn.sendall(data)
             except queue.Empty:
                 continue
             except OSError as e:
@@ -186,11 +198,11 @@ class NetworkPeer:
     def _recv_loop(self):
         """Background thread: receive messages into inbox"""
         buffer = b""
-        self.conn.settimeout(0.1)
+        self.conn.settimeout(0.033)  # ~30fps polling (matches game fps)
 
         while self.running and self.connected:
             try:
-                chunk = self.conn.recv(4096)
+                chunk = self.conn.recv(8192)  # Larger buffer for efficiency
                 if not chunk:
                     print("Connection closed by peer")
                     self.connected = False

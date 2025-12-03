@@ -165,6 +165,10 @@ class GameInstance:
         # Network
         self.network = network
 
+        # Network interpolation for smooth remote player movement
+        self.remote_targets = {}  # player_id -> (target_x, target_y, target_dir)
+        self.interpolation_speed = 0.3  # How fast to interpolate (0-1)
+
     def update(self):
         if pyxel.btnp(pyxel.KEY_Q):
             if self.network:
@@ -184,12 +188,9 @@ class GameInstance:
             if game_messages is None:
                 game_messages = []
             for msg in game_messages:
-                if msg.get("type") == "player_input":
+                msg_type = msg.get("type")
+                if msg_type in ("player_input", "position_sync"):
                     remote_inputs.append(msg)
-
-            # Debug: log when we receive remote inputs
-            if remote_inputs and pyxel.frame_count % 30 == 0:
-                print(f"[Game] Received {len(remote_inputs)} remote inputs")
 
         # Update players
         for i, player in enumerate(self.players):
@@ -210,6 +211,9 @@ class GameInstance:
                         for remote_input in remote_inputs:
                             if remote_input.get("player_id") == i:
                                 self._apply_remote_input(player, remote_input)
+
+        # Smoothly interpolate remote players
+        self._interpolate_remote_players()
 
         # Update bullets
         for bullet in self.bullets:
@@ -300,7 +304,12 @@ class GameInstance:
 
         # Send input to network if this is our player
         if self.use_network and self.network and player_index == self.network.my_player_id:
-            self._send_player_input(dx, dy, shoot, place_mine, player_index)
+            # Only send if there's actual input (movement or action)
+            if dx != 0 or dy != 0 or shoot or place_mine:
+                self._send_player_input(dx, dy, shoot, place_mine, player)
+            # Position sync less frequently when idle (every 15 frames = 0.5 seconds at 30fps)
+            elif pyxel.frame_count % 15 == 0:
+                self._send_position_sync(player)
 
     def _place_mine(self, player):
         """Place a mine at player's location"""
@@ -326,29 +335,56 @@ class GameInstance:
         player.x = x
         player.y = y
 
-    def _send_player_input(self, dx, dy, shoot, place_mine, player_id):
-        """Send local player input to network"""
+    def _send_player_input(self, dx, dy, shoot, place_mine, player):
+        """Send local player input to network with position"""
         if self.network and self.network.peer:
             input_data = {
                 "type": "player_input",
-                "player_id": player_id,
+                "player_id": player.id,
                 "dx": dx,
                 "dy": dy,
                 "shoot": shoot,
-                "place_mine": place_mine
+                "place_mine": place_mine,
+                "x": player.x,
+                "y": player.y,
+                "direction": player.direction
             }
             self.network.peer.send(input_data)
 
+    def _send_position_sync(self, player):
+        """Send position sync for idle player"""
+        if self.network and self.network.peer:
+            sync_data = {
+                "type": "position_sync",
+                "player_id": player.id,
+                "x": player.x,
+                "y": player.y,
+                "direction": player.direction
+            }
+            self.network.peer.send(sync_data)
+
     def _apply_remote_input(self, player, input_data):
-        """Apply remote player's input"""
-        dx = input_data.get("dx", 0)
-        dy = input_data.get("dy", 0)
+        """Apply remote player's input with interpolation for smooth movement"""
+        msg_type = input_data.get("type")
+
+        # Get target position from network
+        target_x = input_data.get("x", player.x)
+        target_y = input_data.get("y", player.y)
+        target_dir = input_data.get("direction", player.direction)
+
+        # Store target for interpolation
+        self.remote_targets[player.id] = (target_x, target_y, target_dir)
+
+        # Direction updates immediately (looks better)
+        player.direction = target_dir
+
+        if msg_type == "position_sync":
+            # Position sync - just update target, interpolation happens in update
+            return
+
+        # player_input message - apply actions immediately
         shoot = input_data.get("shoot", False)
         place_mine = input_data.get("place_mine", False)
-
-        # Apply movement
-        if dx != 0 or dy != 0:
-            player.move(dx, dy, self.game_map)
 
         # Apply actions
         if shoot:
@@ -356,6 +392,34 @@ class GameInstance:
             self.bullets.extend(new_bullets)
         if place_mine:
             self._place_mine(player)
+
+    def _interpolate_remote_players(self):
+        """Smoothly interpolate remote players toward their target positions"""
+        if not self.use_network or not self.network:
+            return
+
+        my_id = self.network.my_player_id
+
+        for player in self.players:
+            if player.id == my_id:
+                continue  # Don't interpolate our own player
+
+            if player.id in self.remote_targets:
+                target_x, target_y, _ = self.remote_targets[player.id]
+
+                # Calculate distance
+                dx = target_x - player.x
+                dy = target_y - player.y
+                distance = (dx * dx + dy * dy) ** 0.5
+
+                # If too far away (teleport/respawn), snap immediately
+                if distance > 50:
+                    player.x = target_x
+                    player.y = target_y
+                elif distance > 0.5:
+                    # Smooth interpolation
+                    player.x += dx * self.interpolation_speed
+                    player.y += dy * self.interpolation_speed
 
     def draw(self):
         pyxel.cls(COLOR_BG)

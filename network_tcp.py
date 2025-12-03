@@ -244,6 +244,10 @@ class NetworkManager:
         self.player_names = {}
         self.my_player_name = ""
         self.game_starting = False
+        # Map data received from host (for client)
+        self.shared_map_data = None
+        self.map_width = None
+        self.map_height = None
 
         # Create TCP peer
         self.peer = None
@@ -313,6 +317,10 @@ class NetworkManager:
         elif msg_type == "start_game":
             print(f"[NetworkManager] Received start_game signal")
             self.game_starting = True
+            # Store map data for GameInstance creation
+            self.shared_map_data = msg.get("map")
+            self.map_width = msg.get("map_width")
+            self.map_height = msg.get("map_height")
 
     def stop(self):
         """Stop networking"""
@@ -341,11 +349,21 @@ class NetworkManager:
                 "players": self.player_names
             })
 
-    def broadcast_start_game(self):
-        """Host broadcasts game start to all clients"""
+    def broadcast_start_game(self, game_map=None):
+        """Host broadcasts game start to all clients with map data"""
         if self.is_host and self.peer and self.peer.is_connected():
-            self.peer.send({
+            msg = {
                 "type": "start_game",
                 "num_players": len(self.player_names)
-            })
-            print(f"[NetworkManager] Broadcasting start_game")
+            }
+            # Include map data if provided
+            if game_map is not None:
+                from constants import MAP_WIDTH, MAP_HEIGHT
+                flat_map = []
+                for row in game_map:
+                    flat_map.extend(row)
+                msg["map"] = flat_map
+                msg["map_width"] = MAP_WIDTH
+                msg["map_height"] = MAP_HEIGHT
+            self.peer.send(msg)
+            print(f"[NetworkManager] Broadcasting start_game with map data")

@@ -170,21 +170,125 @@ The game follows a modular architecture:
 
 ### Network Protocol
 
-LAN multiplayer uses TCP with JSON messages:
+LAN multiplayer uses TCP with JSON messages separated by newlines.
 
+#### Architecture: Host-Authoritative Model
+
+The game uses a **host-authoritative** network model where the host (server) is the source of truth for all game state:
+
+```
+┌─────────────────┐                    ┌─────────────────┐
+│      HOST       │                    │     CLIENT      │
+│   (Player 0)    │                    │   (Player 1)    │
+├─────────────────┤                    ├─────────────────┤
+│ • Generates map │  ───map_data───►   │ • Receives map  │
+│ • Spawns items  │  ──item_spawn──►   │ • Renders items │
+│ • Spawns bullets│  ─bullet_spawn─►   │ • Renders bullets│
+│ • Calculates    │  ─player_damage►   │ • Updates HP/   │
+│   damage/HP     │                    │   kills display │
+│ • Detects wins  │  ──game_state──►   │ • Syncs state   │
+├─────────────────┤                    ├─────────────────┤
+│ • Handles own   │  ◄─player_input─   │ • Sends input   │
+│   input locally │                    │   to host       │
+└─────────────────┘                    └─────────────────┘
+```
+
+#### Message Types
+
+**Lobby Messages:**
 ```json
-// Player input (sent every frame with movement)
-{"type": "player_input", "player_id": 0, "dx": 1, "dy": 0, "shoot": false, "place_mine": false}
-
-// Game start signal (host to client)
-{"type": "start_game", "num_players": 2}
-
-// Player join (client to host)
+// Player join request (client → host)
 {"type": "player_join", "player_id": 1, "name": "Player2"}
 
-// Player list (host to client)
+// Player list update (host → client)
 {"type": "player_list", "players": {"0": "Host", "1": "Client"}}
+
+// Game start signal (host → client)
+{"type": "start_game", "num_players": 2}
 ```
+
+**Game State Messages (Host → Client):**
+```json
+// Initial map data (sent once at game start)
+{"type": "map_data", "map": [0,0,1,1,...], "width": 32, "height": 32}
+
+// Periodic full state sync (every ~1 second)
+{"type": "game_state", "players": [...], "items": [...], "game_over": false}
+
+// Bullet spawn
+{"type": "bullet_spawn", "x": 100, "y": 100, "vx": 2.5, "vy": 0, "owner_id": 0}
+
+// Item spawn
+{"type": "item_spawn", "x": 120, "y": 80, "item_type": 1}
+
+// Item pickup
+{"type": "item_pickup", "x": 120, "y": 80, "player_id": 0}
+
+// Player damage
+{"type": "player_damage", "player_id": 1, "hp": 2, "died": false, "attacker_id": 0}
+
+// Explosion effect
+{"type": "explosion", "x": 100, "y": 100}
+
+// Mine placement
+{"type": "mine_spawn", "x": 50, "y": 50, "owner_id": 0}
+```
+
+**Input Messages (Client → Host, Host → Client for position sync):**
+```json
+// Player input with position (sent when moving/shooting)
+{"type": "player_input", "player_id": 1, "dx": 1, "dy": 0, "shoot": false,
+ "place_mine": false, "x": 100.5, "y": 50.0, "direction": 1}
+
+// Position sync (sent periodically when idle)
+{"type": "position_sync", "player_id": 1, "x": 100.5, "y": 50.0, "direction": 1}
+```
+
+#### Client-Side Interpolation
+
+To ensure smooth movement despite network latency, the client uses **interpolation**:
+
+1. When receiving remote player positions, they are stored as **targets**
+2. Each frame, remote players smoothly move toward their target position
+3. If the distance is >50 pixels (teleport/respawn), snap immediately
+4. Interpolation speed is 0.3 (30% of distance per frame)
+
+```python
+# Interpolation logic
+distance = sqrt(dx² + dy²)
+if distance > 50:
+    player.position = target  # Snap for teleports
+elif distance > 0.5:
+    player.position += (target - position) * 0.3  # Smooth interpolation
+```
+
+#### Threading Model
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│                    Main Thread (Pyxel)                    │
+│  • Game loop (update/draw at 30 FPS)                     │
+│  • Reads from inbox queue (non-blocking)                 │
+│  • Writes to outbox queue (non-blocking)                 │
+└──────────────────────────────────────────────────────────┘
+                          │
+          ┌───────────────┴───────────────┐
+          ▼                               ▼
+┌─────────────────────┐       ┌─────────────────────┐
+│   Send Thread       │       │   Receive Thread    │
+│ • Polls outbox      │       │ • Polls socket      │
+│ • Batches messages  │       │ • Parses JSON       │
+│ • Sends via TCP     │       │ • Puts in inbox     │
+└─────────────────────┘       └─────────────────────┘
+```
+
+#### Optimizations
+
+- **Message Batching**: Up to 5 messages batched per send syscall
+- **Conditional Sending**: Only send input when there's actual movement/action
+- **Position Sync**: Send position every 15 frames (~0.5s) when idle
+- **TCP_NODELAY**: Disabled Nagle's algorithm for lower latency
+- **SO_KEEPALIVE**: Connection health monitoring
 
 ### Performance
 

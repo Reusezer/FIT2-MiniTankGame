@@ -35,7 +35,20 @@ class TankTankApp:
                 # Calculate num_players: at least 2 for network game
                 num_players = max(2, len(self.network.player_names))
                 print(f"[App] Client starting game with {num_players} players")
-                self._start_game(num_players=num_players, use_network=True, is_host=False)
+
+                # Reconstruct map from network data
+                shared_map = None
+                if self.network.shared_map_data is not None:
+                    width = self.network.map_width or MAP_WIDTH
+                    height = self.network.map_height or MAP_HEIGHT
+                    flat_map = self.network.shared_map_data
+                    shared_map = []
+                    for y in range(height):
+                        row = flat_map[y * width:(y + 1) * width]
+                        shared_map.append(row)
+                    print(f"[App] Client reconstructed map from host data")
+
+                self._start_game(num_players=num_players, use_network=True, is_host=False, shared_map=shared_map)
                 return
 
         action = self.menu.update(self.network)
@@ -72,15 +85,19 @@ class TankTankApp:
 
         elif action == "start_network":
             # Host starts network game
+            # Generate map FIRST, then broadcast it with start_game signal
+            from map_generator import MapGenerator
+            shared_map = MapGenerator.generate()
+
             if self.network:
-                # Broadcast start signal to all clients
-                self.network.broadcast_start_game()
-                print("[App] Host broadcasting start_game signal")
+                # Broadcast start signal with map data
+                self.network.broadcast_start_game(game_map=shared_map)
+                print("[App] Host broadcasting start_game signal with map")
 
             # Calculate num_players: at least 2 for network game
             num_players = max(2, len(self.network.player_names)) if self.network else 2
             print(f"[App] Starting game with {num_players} players")
-            self._start_game(num_players=num_players, use_network=True, is_host=self.menu.is_host)
+            self._start_game(num_players=num_players, use_network=True, is_host=self.menu.is_host, shared_map=shared_map)
 
         elif action == "cancel_network":
             # Clean up network
@@ -97,7 +114,7 @@ class TankTankApp:
         if pyxel.btnp(pyxel.KEY_ESCAPE) and self.game.game_over:
             self._return_to_menu()
 
-    def _start_game(self, num_players=2, use_network=False, is_host=False):
+    def _start_game(self, num_players=2, use_network=False, is_host=False, shared_map=None):
         """Start the game"""
         self.in_game = True
         # We need to create a game instance that doesn't call pyxel.run
@@ -106,7 +123,8 @@ class TankTankApp:
             num_players=num_players,
             use_network=use_network,
             is_host=is_host,
-            network=self.network
+            network=self.network,
+            shared_map=shared_map
         )
 
     def _return_to_menu(self):
@@ -174,9 +192,8 @@ class GameInstance:
         self.remote_targets = {}  # player_id -> (target_x, target_y, target_dir)
         self.interpolation_speed = 0.3  # How fast to interpolate (0-1)
 
-        # Host sends initial game state (map) to client
-        if use_network and is_host and network:
-            self._send_map_data()
+        # Note: Map is now sent via start_game message in broadcast_start_game()
+        # No need to send it again here
 
     def update(self):
         if pyxel.btnp(pyxel.KEY_Q):
@@ -186,7 +203,8 @@ class GameInstance:
 
         if self.game_over:
             if pyxel.btnp(pyxel.KEY_R):
-                self.__init__(self.num_players, self.use_network, self.is_host, self.network)
+                # Preserve the current map for restart
+                self.__init__(self.num_players, self.use_network, self.is_host, self.network, self.game_map)
             return
 
         # Update network and receive remote player inputs

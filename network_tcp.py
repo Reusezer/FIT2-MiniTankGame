@@ -1,6 +1,22 @@
 """
-Clean TCP-based networking for Tank Tank
-Based on proven pattern: threading + queues + no blocking in update()
+TCP-based Networking Module for Tank Tank
+
+This module provides network communication between two players over TCP.
+It uses a threading model to avoid blocking the game loop.
+
+Architecture:
+- NetworkPeer: Low-level TCP connection handler (handles actual socket communication)
+- NetworkManager: High-level game networking (handles lobby, player sync, game state)
+
+Threading Model:
+- Main Thread: Pyxel game loop (update/draw at 30fps)
+- Server/Client Thread: Handles initial TCP connection
+- Send Thread: Sends messages from outbox queue to socket
+- Receive Thread: Receives messages from socket to inbox queue
+
+Message Format:
+- JSON dictionaries separated by newlines
+- Example: {"type": "player_input", "x": 100, "y": 50}\n
 """
 
 import socket
@@ -13,36 +29,54 @@ from constants import NETWORK_PORT
 
 class NetworkPeer:
     """
-    Non-blocking TCP network peer for Pyxel games
-    - Server: listens for one client connection
-    - Client: connects to server IP
-    - Messages: JSON dicts separated by newlines
-    - Thread-safe: uses queues, never blocks in game loop
+    Low-level TCP connection handler.
+
+    Provides thread-safe, non-blocking message passing over TCP.
+    Uses queues to communicate between the game loop and network threads.
+
+    Usage:
+        # Server (Host)
+        peer = NetworkPeer(is_server=True)
+
+        # Client
+        peer = NetworkPeer(is_server=False, server_ip="192.168.1.100")
+
+        # In game loop
+        peer.send({"type": "player_input", "x": 100})
+        messages = peer.recv_all()
     """
 
     def __init__(self, is_server, server_ip=None, port=NETWORK_PORT):
+        """
+        Initialize network peer.
+
+        Args:
+            is_server: True for host, False for client
+            server_ip: IP address to connect to (client only)
+            port: Network port (default: 9999)
+        """
         self.is_server = is_server
         self.port = port
         self.server_ip = server_ip
 
-        # Thread-safe communication
-        self.inbox = queue.Queue()
-        self.outbox = queue.Queue()
+        # Thread-safe message queues
+        self.inbox = queue.Queue()   # Messages received from peer
+        self.outbox = queue.Queue()  # Messages to send to peer
 
         # Connection state
-        self.conn = None
-        self.connected = False
-        self.running = True
+        self.conn = None          # Active connection socket
+        self.connected = False    # True when connected
+        self.running = True       # False when shutting down
 
-        # Create socket
+        # Create TCP socket
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
-        # Get local IP
+        # Get local IP for display
         self.my_ip = self._get_local_ip()
 
-        # Start appropriate thread
+        # Start connection thread
         if is_server:
             print(f"Starting server on {self.my_ip}:{port}")
             self.sock.bind(('', port))
@@ -53,7 +87,7 @@ class NetworkPeer:
             threading.Thread(target=self._client_loop, daemon=True).start()
 
     def _get_local_ip(self):
-        """Get local IP address"""
+        """Get local IP address by connecting to external server."""
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
@@ -63,19 +97,24 @@ class NetworkPeer:
         except Exception:
             return "127.0.0.1"
 
-    # ===== Public API (call from Pyxel update/draw) =====
+    # ========== Public API (call from game loop) ==========
 
     def send(self, msg_dict):
         """
-        Send a message (dict). Non-blocking, safe to call from update().
+        Send a message to the peer. Non-blocking.
+
+        Args:
+            msg_dict: Dictionary to send (will be JSON encoded)
         """
         if self.connected:
             self.outbox.put(msg_dict)
 
     def recv_all(self):
         """
-        Get ALL pending messages as a list. Call from update().
-        Returns: list of dicts (may be empty)
+        Get all pending received messages.
+
+        Returns:
+            List of dictionaries (may be empty)
         """
         messages = []
         while not self.inbox.empty():
@@ -85,25 +124,12 @@ class NetworkPeer:
                 break
         return messages
 
-    def recv_latest(self):
-        """
-        Get most recent message (or None). Call from update().
-        Returns: dict or None
-        """
-        last_msg = None
-        while not self.inbox.empty():
-            try:
-                last_msg = self.inbox.get_nowait()
-            except queue.Empty:
-                break
-        return last_msg
-
     def is_connected(self):
-        """Check if connection is active"""
+        """Check if connection is active."""
         return self.connected
 
     def stop(self):
-        """Cleanly shut down networking"""
+        """Shut down the network connection."""
         self.running = False
         self.connected = False
         if self.conn:
@@ -116,10 +142,10 @@ class NetworkPeer:
         except:
             pass
 
-    # ===== Internal threading logic =====
+    # ========== Internal Threading Logic ==========
 
     def _server_loop(self):
-        """Server: wait for client connection"""
+        """Server thread: wait for client connection."""
         print("Waiting for client...")
 
         while self.running and not self.connected:
@@ -131,7 +157,7 @@ class NetworkPeer:
                 self.conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 self.connected = True
 
-                # Start send/recv threads
+                # Start send/receive threads
                 threading.Thread(target=self._send_loop, daemon=True).start()
                 threading.Thread(target=self._recv_loop, daemon=True).start()
                 break
@@ -143,7 +169,7 @@ class NetworkPeer:
                 break
 
     def _client_loop(self):
-        """Client: keep trying to connect"""
+        """Client thread: connect to server with retry."""
         retry_count = 0
         max_retries = 30
 
@@ -156,37 +182,35 @@ class NetworkPeer:
                 self.connected = True
                 print("Connected to server!")
 
-                # Start send/recv threads
+                # Start send/receive threads
                 threading.Thread(target=self._send_loop, daemon=True).start()
                 threading.Thread(target=self._recv_loop, daemon=True).start()
                 break
             except (socket.timeout, OSError) as e:
                 retry_count += 1
-                print(f"Connection attempt {retry_count}/{max_retries}... ({e})")
+                print(f"Connection attempt {retry_count}/{max_retries}...")
                 time.sleep(0.5)
 
         if retry_count >= max_retries:
             print("Failed to connect after max retries")
 
     def _send_loop(self):
-        """Background thread: send messages from outbox"""
+        """Send thread: send messages from outbox to socket."""
         while self.running and self.connected:
             try:
-                # Batch multiple messages if available (reduces syscalls)
+                # Collect messages to send (batch for efficiency)
                 messages = []
                 try:
-                    # Get first message (blocking)
-                    messages.append(self.outbox.get(timeout=0.033))  # ~30fps
-                    # Get any additional pending messages (non-blocking)
-                    while len(messages) < 5:  # Batch up to 5 messages
+                    messages.append(self.outbox.get(timeout=0.033))
+                    while len(messages) < 5:
                         messages.append(self.outbox.get_nowait())
                 except queue.Empty:
                     pass
 
                 if messages:
-                    # Send all messages in one syscall
-                    data = "".join(json.dumps(msg) + "\n" for msg in messages).encode("utf-8")
-                    self.conn.sendall(data)
+                    # Send all as one TCP packet
+                    data = "".join(json.dumps(msg) + "\n" for msg in messages)
+                    self.conn.sendall(data.encode("utf-8"))
             except queue.Empty:
                 continue
             except OSError as e:
@@ -196,13 +220,13 @@ class NetworkPeer:
                 break
 
     def _recv_loop(self):
-        """Background thread: receive messages into inbox"""
+        """Receive thread: receive messages from socket to inbox."""
         buffer = b""
-        self.conn.settimeout(0.033)  # ~30fps polling (matches game fps)
+        self.conn.settimeout(0.033)
 
         while self.running and self.connected:
             try:
-                chunk = self.conn.recv(8192)  # Larger buffer for efficiency
+                chunk = self.conn.recv(8192)
                 if not chunk:
                     print("Connection closed by peer")
                     self.connected = False
@@ -210,7 +234,7 @@ class NetworkPeer:
 
                 buffer += chunk
 
-                # Process complete messages (newline-separated)
+                # Parse complete JSON messages (newline-separated)
                 while b"\n" in buffer:
                     line, buffer = buffer.split(b"\n", 1)
                     if line.strip():
@@ -228,11 +252,26 @@ class NetworkPeer:
                 break
 
 
-# For backward compatibility with old code
 class NetworkManager:
-    """Wrapper to make it compatible with existing menu/app code"""
+    """
+    High-level game networking manager.
+
+    Handles:
+    - Lobby management (player names, game start)
+    - Game state synchronization
+    - Map data sharing
+
+    Used by app.py and menu.py for network game setup.
+    """
 
     def __init__(self, is_host=False, direct_ip=None):
+        """
+        Initialize network manager.
+
+        Args:
+            is_host: True if hosting the game
+            direct_ip: IP address to connect to (client only)
+        """
         self.is_host = is_host
         self.direct_ip = direct_ip
         self.running = False
@@ -244,7 +283,8 @@ class NetworkManager:
         self.player_names = {}
         self.my_player_name = ""
         self.game_starting = False
-        # Map data received from host (for client)
+
+        # Map data for synchronization
         self.shared_map_data = None
         self.map_width = None
         self.map_height = None
@@ -257,7 +297,7 @@ class NetworkManager:
                 self.peer = NetworkPeer(is_server=True)
                 self.connection_established = True
                 self.my_ip = self.peer.my_ip
-                self.my_player_id = 0  # Host is player 0
+                self.my_player_id = 0  # Host is always player 0
             except Exception as e:
                 print(f"Failed to start server: {e}")
                 self.connection_established = False
@@ -267,69 +307,72 @@ class NetworkManager:
                 self.host_address = (direct_ip, NETWORK_PORT)
 
     def start(self):
-        """Start networking"""
+        """Start networking."""
         self.running = True
 
     def update(self):
-        """Update network state and return game messages"""
+        """
+        Process network messages. Call this every frame.
+
+        Returns:
+            List of game messages (player_input, game_state, etc.)
+        """
         if not self.peer:
             return []
 
-        # Check connection status
+        # Update connection status
         if self.peer.is_connected():
             if self.is_host and not self.clients:
                 self.clients = {("client", NETWORK_PORT): 1}
-                print(f"[NetworkManager] Host: Client connected")
+                print("[NetworkManager] Host: Client connected")
             elif not self.is_host and self.my_player_id is None:
                 self.my_player_id = 1
-                print(f"[NetworkManager] Client: Connected, player_id=1")
+                print("[NetworkManager] Client: Connected, player_id=1")
 
-        # Process incoming messages
+        # Process messages
         game_messages = []
         messages = self.peer.recv_all()
         for msg in messages:
             msg_type = msg.get("type")
-            # Handle lobby/system messages internally
+            # Lobby messages handled internally
             if msg_type in ("player_join", "player_list", "start_game"):
                 self._handle_message(msg)
             else:
-                # Return game messages (like player_input) to the caller
+                # Game messages returned to caller
                 game_messages.append(msg)
 
         return game_messages
 
     def _handle_message(self, msg):
-        """Handle incoming network messages"""
+        """Handle lobby/system messages."""
         msg_type = msg.get("type")
 
         if msg_type == "player_join":
             player_id = msg.get("player_id", 1)
             player_name = msg.get("name", f"Player {player_id}")
             self.player_names[player_id] = player_name
-            print(f"[NetworkManager] Player joined: {player_name} (ID: {player_id})")
+            print(f"[NetworkManager] Player joined: {player_name}")
             if self.is_host:
                 self.send_player_list()
 
         elif msg_type == "player_list":
             self.player_names = msg.get("players", {})
-            print(f"[NetworkManager] Received player list: {self.player_names}")
 
         elif msg_type == "start_game":
-            print(f"[NetworkManager] Received start_game signal")
+            print("[NetworkManager] Received start_game signal")
             self.game_starting = True
-            # Store map data for GameInstance creation
             self.shared_map_data = msg.get("map")
             self.map_width = msg.get("map_width")
             self.map_height = msg.get("map_height")
 
     def stop(self):
-        """Stop networking"""
+        """Stop networking."""
         self.running = False
         if self.peer:
             self.peer.stop()
 
     def join_game(self, player_name=""):
-        """Join game and send player name"""
+        """Client: Send join request to host."""
         if self.peer and self.peer.is_connected():
             self.my_player_name = player_name
             self.peer.send({
@@ -337,12 +380,11 @@ class NetworkManager:
                 "player_id": 1,
                 "name": player_name
             })
-            print(f"[NetworkManager] Sent join request: {player_name}")
             return True
         return False
 
     def send_player_list(self):
-        """Host sends current player list to all clients"""
+        """Host: Broadcast player list to clients."""
         if self.is_host and self.peer and self.peer.is_connected():
             self.peer.send({
                 "type": "player_list",
@@ -350,13 +392,13 @@ class NetworkManager:
             })
 
     def broadcast_start_game(self, game_map=None):
-        """Host broadcasts game start to all clients with map data"""
+        """Host: Broadcast game start signal with map data."""
         if self.is_host and self.peer and self.peer.is_connected():
             msg = {
                 "type": "start_game",
                 "num_players": len(self.player_names)
             }
-            # Include map data if provided
+            # Include map data
             if game_map is not None:
                 from constants import MAP_WIDTH, MAP_HEIGHT
                 flat_map = []
@@ -366,4 +408,4 @@ class NetworkManager:
                 msg["map_width"] = MAP_WIDTH
                 msg["map_height"] = MAP_HEIGHT
             self.peer.send(msg)
-            print(f"[NetworkManager] Broadcasting start_game with map data")
+            print("[NetworkManager] Broadcasting start_game with map data")

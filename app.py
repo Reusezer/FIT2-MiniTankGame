@@ -1,8 +1,7 @@
 import pyxel
 from constants import *
 from menu import Menu, MenuState
-from game import Game
-from network_tcp import NetworkManager  # Using new TCP implementation
+from network_tcp import NetworkManager
 
 
 class TankTankApp:

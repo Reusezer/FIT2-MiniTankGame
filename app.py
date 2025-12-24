@@ -15,7 +15,91 @@ class TankTankApp:
         self.network = None
         self.in_game = False
 
+        # Initialize sounds and music
+        self._init_sounds()
+
         pyxel.run(self.update, self.draw)
+
+    def _init_sounds(self):
+        """Initialize all game sounds and music"""
+        # Sound 0: Shoot - short laser sound
+        pyxel.sounds[0].set(
+            notes="c3c2",
+            tones="pp",
+            volumes="42",
+            effects="nn",
+            speed=8
+        )
+
+        # Sound 1: Explosion - deep boom
+        pyxel.sounds[1].set(
+            notes="f1c1a0f0",
+            tones="nnnn",
+            volumes="7531",
+            effects="ssss",
+            speed=6
+        )
+
+        # Sound 2: Item pickup - happy bling
+        pyxel.sounds[2].set(
+            notes="c3e3g3c4",
+            tones="ssss",
+            volumes="4444",
+            effects="nnnn",
+            speed=6
+        )
+
+        # Sound 3: Death - sad descending
+        pyxel.sounds[3].set(
+            notes="g2e2c2a1",
+            tones="pppp",
+            volumes="5432",
+            effects="ssss",
+            speed=10
+        )
+
+        # Sound 4: Win - victory fanfare
+        pyxel.sounds[4].set(
+            notes="c3e3g3c4e4g4",
+            tones="tttttt",
+            volumes="555554",
+            effects="nnnnnn",
+            speed=8
+        )
+
+        # Sound 5: Menu select
+        pyxel.sounds[5].set(
+            notes="c3g3",
+            tones="ss",
+            volumes="43",
+            effects="nn",
+            speed=5
+        )
+
+        # Background music - channel 0 melody
+        pyxel.sounds[10].set(
+            notes="c2r c2r e2r g2r  c2r c2r e2r g2r  a1r a1r c2r e2r  g1r g1r b1r d2r",
+            tones="s",
+            volumes="3",
+            effects="n",
+            speed=20
+        )
+
+        # Background music - channel 1 bass
+        pyxel.sounds[11].set(
+            notes="c1 r g0 r  c1 r g0 r  a0 r e0 r  g0 r d0 r",
+            tones="t",
+            volumes="4",
+            effects="n",
+            speed=40
+        )
+
+        # Set up music 0 (battle music)
+        pyxel.musics[0].set([10], [11], [], [])
+
+    def _play_sound(self, sound_id):
+        """Play a sound effect"""
+        pyxel.play(sound_id % 4, sound_id)
 
     def update(self):
         if self.in_game:
@@ -116,6 +200,8 @@ class TankTankApp:
     def _start_game(self, num_players=2, use_network=False, is_host=False, shared_map=None):
         """Start the game"""
         self.in_game = True
+        # Start background music
+        pyxel.playm(0, loop=True)
         # We need to create a game instance that doesn't call pyxel.run
         # So we'll modify the game to have a separate run mode
         self.game = GameInstance(
@@ -130,6 +216,8 @@ class TankTankApp:
         """Return to main menu"""
         self.in_game = False
         self.game = None
+        # Stop all music and sounds
+        pyxel.stop()
         if self.network:
             self.network.stop()
             self.network = None
@@ -275,6 +363,8 @@ class GameInstance:
                                     self.game_over = True
                                     self.winner = killer
                                     self.winner_id = killer.id
+                                    pyxel.stop()  # Stop background music
+                                    pyxel.play(3, 4)  # Play victory sound
                             # Respawn player
                             self._respawn_player(player)
                         bullet.active = False
@@ -295,6 +385,16 @@ class GameInstance:
                     if mine.check_trigger(player):
                         died = player.take_damage()
                         if died:
+                            # Player died - award kill to mine owner
+                            killer = self._get_player_by_id(mine.owner_id)
+                            if killer:
+                                killer.kills += 1
+                                if killer.kills >= WIN_KILLS:
+                                    self.game_over = True
+                                    self.winner = killer
+                                    self.winner_id = killer.id
+                                    pyxel.stop()  # Stop background music
+                                    pyxel.play(3, 4)  # Play victory sound
                             self._respawn_player(player)
                         self._add_explosion(mine.x, mine.y)
                         if self.use_network and self.is_host:
@@ -379,11 +479,13 @@ class GameInstance:
         # Apply actions
         if shoot:
             new_bullets = player.shoot()
-            self.bullets.extend(new_bullets)
-            # Host syncs bullets to client
-            if self.use_network and self.is_host:
-                for bullet in new_bullets:
-                    self._send_bullet_spawn(bullet)
+            if new_bullets:
+                self.bullets.extend(new_bullets)
+                pyxel.play(0, 0)  # Play shoot sound
+                # Host syncs bullets to client
+                if self.use_network and self.is_host:
+                    for bullet in new_bullets:
+                        self._send_bullet_spawn(bullet)
         if place_mine:
             self._place_mine(player)
 
@@ -397,11 +499,12 @@ class GameInstance:
                 self._send_position_sync(player)
 
     def _place_mine(self, player):
-        """Place a mine at player's location"""
+        """Place a mine at player's location (limited to 5 per player)"""
         from items import Mine
-        if player.alive:
+        if player.alive and player.mines_remaining > 0:
             mine = Mine(player.x, player.y, player.id)
             self.mines.append(mine)
+            player.mines_remaining -= 1
             # Host syncs mine to client
             if self.use_network and self.is_host:
                 self._send_mine_spawn(mine)
@@ -409,6 +512,7 @@ class GameInstance:
     def _add_explosion(self, x, y):
         """Add explosion effect"""
         self.explosions.append((x, y, 15))
+        pyxel.play(1, 1)  # Play explosion sound
 
     def _get_player_by_id(self, player_id):
         """Get player by ID"""
@@ -749,6 +853,8 @@ class GameInstance:
                         self.game_over = True
                         self.winner = killer
                         self.winner_id = killer.id
+                        pyxel.stop()  # Stop background music
+                        pyxel.play(3, 4)  # Play victory sound
 
     def _apply_explosion(self, msg):
         """Client applies explosion from host"""

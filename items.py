@@ -23,6 +23,7 @@ class Item:
         if dist < (PLAYER_SIZE + ITEM_SIZE) / 2:
             player.activate_item(self.type)
             self.active = False
+            pyxel.play(2, 2)  # Play item pickup sound
             return True
         return False
 

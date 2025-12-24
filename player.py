@@ -31,6 +31,9 @@ class Player:
         # Shooting cooldown
         self.shoot_cooldown = 0
 
+        # Mine limit
+        self.mines_remaining = MINE_LIMIT
+
     def update(self, game_map):
         # Handle respawn
         if not self.alive:

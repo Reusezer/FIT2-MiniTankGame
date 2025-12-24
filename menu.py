@@ -8,6 +8,7 @@ class MenuState:
     NETWORK_SETUP = 3
     LOBBY = 4
     CONNECTING = 5
+    HOW_TO_PLAY = 6
 
 
 class Menu:
@@ -29,6 +30,7 @@ class Menu:
             "LOCAL MULTIPLAYER",
             "HOST NETWORK GAME",
             "JOIN BY IP ADDRESS",
+            "HOW TO PLAY",
             "QUIT"
         ]
 
@@ -48,6 +50,8 @@ class Menu:
             return self._update_connecting(network_manager)
         elif self.state == MenuState.LOBBY:
             return self._update_lobby(network_manager)
+        elif self.state == MenuState.HOW_TO_PLAY:
+            return self._update_how_to_play()
 
         return None
 
@@ -68,7 +72,9 @@ class Menu:
             elif self.selected_option == 2:  # Join by IP
                 self.is_host = False
                 self.state = MenuState.ENTER_IP
-            elif self.selected_option == 3:  # Quit
+            elif self.selected_option == 3:  # How to play
+                self.state = MenuState.HOW_TO_PLAY
+            elif self.selected_option == 4:  # Quit
                 return "quit"
 
         return None
@@ -227,6 +233,13 @@ class Menu:
 
         return None
 
+    def _update_how_to_play(self):
+        """Handle how to play screen"""
+        # Go back to main menu
+        if pyxel.btnp(pyxel.KEY_B) or pyxel.btnp(pyxel.KEY_SPACE) or pyxel.btnp(pyxel.KEY_RETURN):
+            self.state = MenuState.MAIN_MENU
+        return None
+
     def draw(self):
         pyxel.cls(COLOR_BG)
 
@@ -242,6 +255,8 @@ class Menu:
             self._draw_connecting()
         elif self.state == MenuState.LOBBY:
             self._draw_lobby()
+        elif self.state == MenuState.HOW_TO_PLAY:
+            self._draw_how_to_play()
 
     def _draw_main_menu(self):
         # Title
@@ -509,3 +524,122 @@ class Menu:
         if self.error_message:
             msg_x = SCREEN_WIDTH // 2 - len(self.error_message) * 2
             pyxel.text(msg_x, 230, self.error_message, COLOR_EXPLOSION)
+
+    def _draw_how_to_play(self):
+        """Draw how to play information screen"""
+        # Title
+        title = "HOW TO PLAY"
+        title_x = SCREEN_WIDTH // 2 - len(title) * 2
+        pyxel.text(title_x, 8, title, COLOR_ITEM)
+
+        # ===== CONTROLS SECTION =====
+        pyxel.text(10, 24, "CONTROLS", COLOR_UI)
+        pyxel.line(10, 32, 80, 32, COLOR_WALL)
+
+        # Draw a mini tank for visual
+        tank_x, tank_y = 30, 50
+        pyxel.rect(tank_x - 3, tank_y - 3, 6, 6, COLOR_PLAYER_1)
+        pyxel.line(tank_x, tank_y, tank_x, tank_y - 5, COLOR_UI)
+
+        # Movement keys
+        pyxel.text(50, 42, "W", COLOR_ITEM)
+        pyxel.text(42, 52, "A S D", COLOR_ITEM)
+        pyxel.text(80, 47, "Move", COLOR_UI)
+
+        # Shoot
+        pyxel.text(50, 68, "SPACE", COLOR_ITEM)
+        pyxel.text(80, 68, "Shoot", COLOR_UI)
+        # Draw bullet
+        pyxel.circ(45, 70, 2, COLOR_BULLET)
+
+        # Mine
+        pyxel.text(50, 82, "E", COLOR_ITEM)
+        pyxel.text(80, 82, "Place Mine", COLOR_UI)
+        # Draw mini mine
+        pyxel.circ(45, 84, 2, COLOR_EXPLOSION)
+
+        # ===== ITEMS SECTION =====
+        pyxel.text(10, 100, "ITEMS", COLOR_UI)
+        pyxel.line(10, 108, 50, 108, COLOR_WALL)
+
+        items_y = 116
+        item_spacing = 18
+
+        # Triple Shot (Yellow)
+        pyxel.circ(20, items_y, 4, COLOR_ITEM)
+        pyxel.pset(18, items_y, COLOR_BG)
+        pyxel.pset(20, items_y, COLOR_BG)
+        pyxel.pset(22, items_y, COLOR_BG)
+        pyxel.text(30, items_y - 2, "Triple Shot", COLOR_ITEM)
+        pyxel.text(95, items_y - 2, "3 bullets", COLOR_WALL)
+
+        # Shield (Blue)
+        items_y += item_spacing
+        pyxel.circ(20, items_y, 4, COLOR_PLAYER_2)
+        pyxel.circb(20, items_y, 2, COLOR_BG)
+        pyxel.text(30, items_y - 2, "Shield", COLOR_PLAYER_2)
+        pyxel.text(95, items_y - 2, "Block 1 hit", COLOR_WALL)
+
+        # Speed (Green)
+        items_y += item_spacing
+        pyxel.circ(20, items_y, 4, COLOR_PLAYER_3)
+        pyxel.line(20, items_y - 2, 20, items_y + 2, COLOR_BG)
+        pyxel.text(30, items_y - 2, "Speed", COLOR_PLAYER_3)
+        pyxel.text(95, items_y - 2, "1.5x faster", COLOR_WALL)
+
+        # Vision (White)
+        items_y += item_spacing
+        pyxel.circ(20, items_y, 4, COLOR_UI)
+        pyxel.pset(20, items_y, COLOR_BG)
+        pyxel.text(30, items_y - 2, "Vision", COLOR_UI)
+        pyxel.text(95, items_y - 2, "See all map", COLOR_WALL)
+
+        # ===== MIRRORS SECTION =====
+        pyxel.text(140, 24, "MIRRORS", COLOR_UI)
+        pyxel.line(140, 32, 200, 32, COLOR_WALL)
+
+        mirror_x = 155
+        mirror_y = 45
+
+        # Horizontal mirror
+        pyxel.rect(mirror_x, mirror_y, 8, 8, COLOR_MIRROR)
+        pyxel.line(mirror_x, mirror_y + 4, mirror_x + 8, mirror_y + 4, COLOR_UI)
+        pyxel.text(mirror_x + 15, mirror_y + 2, "Flip V", COLOR_WALL)
+        # Arrow showing reflection
+        pyxel.text(mirror_x + 2, mirror_y - 8, "v", COLOR_BULLET)
+        pyxel.text(mirror_x + 2, mirror_y + 12, "v", COLOR_BULLET)
+
+        # Vertical mirror
+        mirror_y += 28
+        pyxel.rect(mirror_x, mirror_y, 8, 8, COLOR_MIRROR)
+        pyxel.line(mirror_x + 4, mirror_y, mirror_x + 4, mirror_y + 8, COLOR_UI)
+        pyxel.text(mirror_x + 15, mirror_y + 2, "Flip H", COLOR_WALL)
+
+        # Diagonal mirror 1
+        mirror_y += 28
+        pyxel.rect(mirror_x, mirror_y, 8, 8, COLOR_MIRROR)
+        pyxel.line(mirror_x, mirror_y, mirror_x + 8, mirror_y + 8, COLOR_UI)
+        pyxel.text(mirror_x + 15, mirror_y + 2, "Bounce", COLOR_WALL)
+
+        # Diagonal mirror 2
+        mirror_y += 28
+        pyxel.rect(mirror_x, mirror_y, 8, 8, COLOR_MIRROR)
+        pyxel.line(mirror_x + 8, mirror_y, mirror_x, mirror_y + 8, COLOR_UI)
+        pyxel.text(mirror_x + 15, mirror_y + 2, "Bounce", COLOR_WALL)
+
+        # ===== RULES SECTION =====
+        pyxel.text(140, 160, "RULES", COLOR_UI)
+        pyxel.line(140, 168, 180, 168, COLOR_WALL)
+
+        pyxel.text(140, 176, "HP: 3", COLOR_EXPLOSION)
+        pyxel.text(140, 188, "First to 5", COLOR_ITEM)
+        pyxel.text(140, 198, "kills wins!", COLOR_ITEM)
+
+        # Bullet bounces info
+        pyxel.text(140, 212, "Bullets bounce", COLOR_WALL)
+        pyxel.text(140, 222, "3 times max", COLOR_WALL)
+
+        # ===== BACK INSTRUCTION =====
+        back_text = "Press SPACE or B to return"
+        back_x = SCREEN_WIDTH // 2 - len(back_text) * 2
+        pyxel.text(back_x, 244, back_text, COLOR_WALL)

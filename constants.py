@@ -82,6 +82,7 @@ ITEM_VISION = 5       # Full map visibility - マップ全体が見える
 # =============================================================================
 
 WIN_KILLS = 5              # Kills needed to win - 勝利に必要なキル数
+MINE_LIMIT = 5             # Max mines per player per game - プレイヤー毎の地雷上限
 VISION_RADIUS = 80         # Normal vision radius in pixels - 通常の視界半径
 VISION_FULL_RADIUS = 200   # Vision radius with power-up - パワーアップ時の視界半径
 

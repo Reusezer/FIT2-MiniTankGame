@@ -34,6 +34,9 @@ class Player:
         # Mine limit
         self.mines_remaining = MINE_LIMIT
 
+        # Respawn protection (anti-リスキル)
+        self.invincibility_timer = 0
+
     def update(self, game_map):
         # Handle respawn
         if not self.alive:
@@ -64,6 +67,9 @@ class Player:
 
         if self.track_cooldown > 0:
             self.track_cooldown -= 1
+
+        if self.invincibility_timer > 0:
+            self.invincibility_timer -= 1
 
         # Decay track trail
         self.track_trail = [(tx, ty, alpha - 1) for tx, ty, alpha in self.track_trail if alpha > 1]
@@ -170,6 +176,10 @@ class Player:
         if not self.alive:
             return False
 
+        # Respawn protection - can't take damage while invincible
+        if self.invincibility_timer > 0:
+            return False
+
         if self.has_shield:
             self.has_shield = False
             return False
@@ -193,6 +203,7 @@ class Player:
         self.has_speed_boost = False
         self.has_full_vision = False
         self.speed = PLAYER_SPEED
+        self.invincibility_timer = RESPAWN_INVINCIBILITY  # Spawn protection
         # Position is set by game logic
 
     def activate_item(self, item_type):
@@ -217,6 +228,10 @@ class Player:
 
         if not self.alive:
             return
+
+        # Blink effect when invincible (respawn protection)
+        if self.invincibility_timer > 0 and pyxel.frame_count % 6 < 3:
+            return  # Skip drawing every other 3 frames for blink effect
 
         # Draw tank body (rectangle)
         half_size = PLAYER_SIZE // 2

@@ -321,6 +321,8 @@ class GameInstance:
                     self._apply_explosion(msg)
                 elif msg_type == "mine_spawn":
                     self._apply_mine_spawn(msg)
+                elif msg_type == "mine_delete":
+                    self._apply_mine_delete(msg)
 
         # Update players
         for i, player in enumerate(self.players):
@@ -379,8 +381,22 @@ class GameInstance:
 
         # Update mines (host authoritative)
         if not self.use_network or self.is_host:
+            mines_to_remove = []
             for mine in self.mines:
+                was_active = mine.active
                 mine.update()
+
+                # Check if mine expired naturally (not triggered)
+                if was_active and not mine.active:
+                    # Mine expired - restore mines_remaining to owner
+                    owner = self._get_player_by_id(mine.owner_id)
+                    if owner:
+                        owner.mines_remaining += 1
+                    mines_to_remove.append(mine)
+                    if self.use_network and self.is_host:
+                        self._send_mine_delete(mine)
+                    continue
+
                 for player in self.players:
                     if mine.check_trigger(player):
                         died = player.take_damage()
@@ -397,11 +413,13 @@ class GameInstance:
                                     pyxel.play(3, 4)  # Play victory sound
                             self._respawn_player(player)
                         self._add_explosion(mine.x, mine.y)
+                        mines_to_remove.append(mine)
                         if self.use_network and self.is_host:
                             self._send_player_damage(player, died, mine.owner_id)
                             self._send_explosion(mine.x, mine.y)
+                            self._send_mine_delete(mine)
 
-            self.mines = [m for m in self.mines if m.active]
+            self.mines = [m for m in self.mines if m.active and m not in mines_to_remove]
 
         # Update items (host authoritative for spawning)
         if not self.use_network or self.is_host:
@@ -738,6 +756,16 @@ class GameInstance:
                 "owner_id": mine.owner_id
             })
 
+    def _send_mine_delete(self, mine):
+        """Host sends mine deletion to client"""
+        if self.network and self.network.peer:
+            self.network.peer.send({
+                "type": "mine_delete",
+                "x": mine.x,
+                "y": mine.y,
+                "owner_id": mine.owner_id
+            })
+
     # ===== Network Apply Methods (Client receives from Host) =====
 
     def _apply_map_data(self, msg):
@@ -867,6 +895,14 @@ class GameInstance:
         from items import Mine
         mine = Mine(msg.get("x"), msg.get("y"), msg.get("owner_id"))
         self.mines.append(mine)
+
+    def _apply_mine_delete(self, msg):
+        """Client applies mine deletion from host"""
+        x = msg.get("x")
+        y = msg.get("y")
+        owner_id = msg.get("owner_id")
+        # Find and remove matching mine
+        self.mines = [m for m in self.mines if not (m.x == x and m.y == y and m.owner_id == owner_id)]
 
     def draw(self):
         pyxel.cls(COLOR_BG)

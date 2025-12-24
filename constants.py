@@ -47,6 +47,7 @@ PLAYER_SIZE = 6         # Tank size in pixels - 戦車のサイズ（ピクセ�
 PLAYER_SPEED = 1.0      # Base movement speed (pixels per frame) - 基本移動速度
 PLAYER_MAX_HP = 3       # Maximum health points - 最大HP
 PLAYER_RESPAWN_TIME = 60  # Frames until respawn (60 frames = 2 seconds) - リスポーン時間（フレーム）
+RESPAWN_INVINCIBILITY = 90  # Frames of invincibility after respawn (3 seconds) - リスポーン後の無敵時間
 
 # =============================================================================
 # BULLET SETTINGS - 弾丸設定
